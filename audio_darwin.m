@@ -380,7 +380,7 @@ char *audio_devices(void) {
             if (!property(id, kAudioObjectPropertyName, kAudioObjectPropertyScopeGlobal,
                           kAudioObjectPropertyElementMain, &name, sizeof(name)) || !name) continue;
             NSString *label = CFBridgingRelease(name);
-            [result addObject:@{@"id": [@(id) stringValue], @"name": label, @"current": @(id == current)}];
+            [result addObject:@{@"id": [@(id) stringValue], @"name": label, @"current": id == current ? @YES : @NO}];
         }
         NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:NULL];
         return json ? strdup([[[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] UTF8String]) : NULL;
