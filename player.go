@@ -9,6 +9,10 @@ import (
 )
 
 type player struct {
+	listenHistory                         []listenEntry
+	blind, revealed, tripDetour           bool
+	tripDestination                       string
+	tripLeg                               *tripLeg
 	sessionPath, repeat, gain             string
 	restored, shuffle, crossfade          bool
 	shuffled                              []int
@@ -128,15 +132,22 @@ func (p *player) start(a *album, i int) bool {
 
 func (p *player) nowPlaying(a *album, i int) {
 	t := a.tracks[i]
+	resumed := p.restored && p.current() != nil && p.current().path == t.path
 	p.active, p.playingIndex, p.restored = a, i, false
+	p.revealed = false
+	p.tripLeg = nil
 	p.expected, p.finished, p.analysisAvailable = true, false, true
 	// Melisma hears about every local song, and explains the ones it chose.
 	p.why, p.handover = nil, false
 	if p.picked != nil && p.picked.Path == t.path {
 		p.why = p.picked.Why
+		p.tripLeg = p.picked.Leg
 	}
 	p.picked = nil
 	if t.radioFormat == "" && !a.radio {
+		if !resumed || len(p.listenHistory) == 0 {
+			p.rememberTrack(t)
+		}
 		p.engine.tell("played", "path", t.path)
 	}
 	p.notice = ""
@@ -155,6 +166,7 @@ func (p *player) playSelection() {
 	p.leaving("choose")
 	if p.start(p.results[p.albumIndex], index) {
 		p.melisma = false
+		p.tripDestination, p.tripDetour = "", false
 		p.stopRadio()
 		p.clearLiveStation()
 		p.leaveQueue()
@@ -216,10 +228,12 @@ func (p *player) tick(now time.Time) {
 		p.state.elapsed = p.state.duration
 	}
 	p.publishMedia(now)
-	if !p.popup || !p.lyricsMode {
+	if !p.popup || !p.lyricsMode || p.hiddenTrack() {
 		p.stopLyricsLookup()
 	}
-	p.updateCover()
+	if !p.hiddenTrack() {
+		p.updateCover()
+	}
 	if !p.popup {
 		return
 	}
@@ -227,11 +241,11 @@ func (p *player) tick(now time.Time) {
 		p.output = outputVolume()
 		p.nextOutput = now.Add(500 * time.Millisecond)
 	}
-	if p.lyricsMode {
+	if p.lyricsMode && !p.hiddenTrack() {
 		p.updateLyrics()
 		return
 	}
-	if !p.visual {
+	if !p.visual && !p.hiddenTrack() {
 		return
 	}
 	if !p.state.playing {
@@ -251,7 +265,11 @@ func (p *player) tick(now time.Time) {
 
 func (p *player) publishMedia(now time.Time) {
 	if t := p.current(); t != nil && !now.Before(p.nextMedia) {
-		updateMediaControls(*t, p.state)
+		display := *t
+		if p.hiddenTrack() {
+			display = track{path: "elsewhere:blind", title: "Mystery track"}
+		}
+		updateMediaControls(display, p.state)
 		p.nextMedia = now.Add(time.Second)
 	}
 }
@@ -347,7 +365,16 @@ func (p *player) handle(key string) bool {
 	}
 	if p.popup {
 		switch key {
+		case "r", "R":
+			if p.hiddenTrack() {
+				p.revealed = true
+				p.nextMedia = time.Time{}
+			}
+			return true
 		case "c", "C":
+			if p.hiddenTrack() {
+				return true
+			}
 			if t := p.current(); t != nil && t.source.artist != "" && t.source.cover == nil && p.coverLookup.result == nil {
 				t.source.loaded = false
 				t.source.coverPromptDismissed = false

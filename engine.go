@@ -34,17 +34,20 @@ type engine struct {
 
 // enginePick is one song the engine chose, with its reasons.
 type enginePick struct {
-	OK      bool     `json:"ok"`
-	Error   string   `json:"error"`
-	Done    bool     `json:"done"`
-	Path    string   `json:"path"`
-	Title   string   `json:"title"`
-	Artist  string   `json:"artist"`
-	Album   string   `json:"album"`
-	Why     []string `json:"why"`
-	Facts   string   `json:"facts"`
-	Mode    string   `json:"mode"`
-	Explore float64  `json:"exploration"`
+	OK         bool     `json:"ok"`
+	Error      string   `json:"error"`
+	Done       bool     `json:"done"`
+	Path       string   `json:"path"`
+	Title      string   `json:"title"`
+	Artist     string   `json:"artist"`
+	Album      string   `json:"album"`
+	Why        []string `json:"why"`
+	Facts      string   `json:"facts"`
+	Mode       string   `json:"mode"`
+	Explore    float64  `json:"exploration"`
+	Leg        *tripLeg `json:"leg"`
+	PlayCount  int      `json:"play_count"`
+	LastPlayed int64    `json:"last_played"`
 }
 
 type engineReply struct {
@@ -366,6 +369,15 @@ func (p *player) playMelisma() bool {
 			return false
 		}
 		if p.playPick(pick) {
+			if p.tripDetour {
+				p.tripDetour = false
+				if err := p.engine.setMode(p.melismaMode); err != nil {
+					p.tripDestination = ""
+					p.notice = "Melisma: " + err.Error()
+				} else {
+					p.engine.tell("from", "path", pick.Path)
+				}
+			}
 			return true
 		}
 	}
@@ -409,6 +421,9 @@ func (p *player) steerMelisma(op string) {
 		return
 	}
 	p.notice = "Melisma: " + message
+	if op == "surprise" && p.tripDestination != "" {
+		p.tripDetour = true
+	}
 	if op == "dislike" {
 		p.finished = true
 		p.melisma = true
@@ -419,23 +434,26 @@ func (p *player) steerMelisma(op string) {
 }
 
 // setMelismaMode changes where Melisma heads, and lets it choose from here on.
-func (p *player) setMelismaMode(fields map[string]any, what string) {
+func (p *player) setMelismaMode(fields map[string]any, what string) bool {
 	if p.engine == nil {
 		p.notice = "Melisma isn't running: " + p.engineStatus()
-		return
+		return false
 	}
 	if err := p.engine.setMode(fields); err != nil {
 		p.notice = "Melisma: " + err.Error()
-		return
+		return false
 	}
 	// Kept so a restarted engine (after /analyze) heads the same way.
 	p.melismaMode = fields
+	p.tripDestination, p.tripDetour = "", false
+	p.tripLeg = nil
 	if !p.melisma {
 		p.startMelisma()
 	}
 	if p.melisma {
 		p.notice = "Melisma: " + what + " · " + p.engine.mode
 	}
+	return p.melisma
 }
 
 // pollEngine picks up the engine once it has started, and notices if it stops.

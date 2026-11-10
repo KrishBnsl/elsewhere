@@ -12,10 +12,11 @@ type savedSession struct {
 	Volume                                         int
 	Repeat, Gain                                   string
 	Queue                                          []string
+	History                                        []listenEntry `json:",omitempty"`
 }
 
 func (p *player) saveSession() error {
-	s := savedSession{Library: p.path, Volume: p.volume, Repeat: p.repeat, Shuffle: p.shuffle, Gain: p.gain, Crossfade: p.crossfade}
+	s := savedSession{Library: p.path, Volume: p.volume, Repeat: p.repeat, Shuffle: p.shuffle, Gain: p.gain, Crossfade: p.crossfade, History: p.listenHistory}
 	if t := p.localSong(); t != nil {
 		s.Current, s.Position = t.path, p.state.elapsed
 		s.Duration = p.state.duration
@@ -48,6 +49,7 @@ func (p *player) restoreSession() {
 	if err != nil || json.Unmarshal(data, &s) != nil || s.Library != p.path {
 		return
 	}
+	p.listenHistory = s.History[max(0, len(s.History)-maxListenHistory):]
 	p.volume, p.repeat, p.shuffle, p.gain = min(100, max(0, s.Volume)), s.Repeat, s.Shuffle, s.Gain
 	for _, path := range s.Queue {
 		if a, i := p.findTrack(path); a != nil {

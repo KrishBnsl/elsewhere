@@ -54,9 +54,13 @@ func (p *player) frame(width, height int) []string {
 	state := th.stop
 	playing := " Choose an album or track and press Enter"
 	current := p.current()
+	hidden := p.hiddenTrack()
 	if current != nil {
 		state = th.pause
 		playing = fmt.Sprintf(" %s  /  %s  /  %s", current.title, current.artist, current.album)
+	}
+	if hidden {
+		playing = " Mystery track · R to reveal"
 	}
 	if p.state.playing {
 		state = th.play
@@ -111,7 +115,7 @@ func (p *player) frame(width, height int) []string {
 		}
 		if t < len(tracks) {
 			marker := " "
-			if current != nil && current.path == tracks[t].path {
+			if !hidden && current != nil && current.path == tracks[t].path {
 				marker = "▶"
 			}
 			liked := " "
@@ -170,6 +174,11 @@ func (p *player) frame(width, height int) []string {
 		row(" ↑↓ Move  Tab Pane  Enter Play  Space Pause  / Find", selected),
 		row(" </> Skip  * Like  M Player  Q Queue  :q Quit"+radioShortcut, selected))
 	if p.popup && current != nil {
+		if hidden {
+			for i := 4; i < len(rows)-2; i++ {
+				rows[i] = row("", dim)
+			}
+		}
 		p.overlay(rows, width, *current, state)
 		if p.searching {
 			y := height - 3
@@ -242,6 +251,8 @@ func artworkRow(cover *cover, row, size int) string {
 
 func (p *player) overlay(rows []string, width int, t track, state string) {
 	height := len(rows)
+	hidden := p.hiddenTrack()
+	showLyrics := p.lyricsMode && !hidden
 	columns := min(112, width-max(2, width/10))
 	size := min(coverSize/2, max(8, (columns-36)/3), height-5)
 	infoWidth := columns - size*2 - 6
@@ -277,6 +288,13 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 		reasons = []string{"· Melisma hasn't heard this yet: /analyze"}
 	}
 	info := []string{t.title, t.artist, t.album}
+	if hidden {
+		info = []string{"Mystery track", "R to reveal", ""}
+		reasons = []string{""}
+		trackInfo = "Blind listening"
+	} else if p.melisma && p.tripDestination != "" {
+		info[2] = tripRoute(p.tripLeg)
+	}
 	info = append(info, reasons...)
 	info = append(info,
 		progress(p.state.elapsed, p.state.duration, infoWidth-2),
@@ -291,21 +309,25 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 	}
 	titleRow := len(info)
 	featureStart := titleRow + 1
-	if p.lyricsMode && size-featureStart >= 4 {
+	if showLyrics && size-featureStart >= 4 {
 		titleRow++
 		featureStart += 2
 	}
 	chartHeight := max(1, size-featureStart)
 	var feature []string
 	featureTitle := activeTheme.box.h + " " + activeTheme.visualTitle
-	if p.lyricsMode {
+	if showLyrics {
 		featureTitle = activeTheme.box.h + " SYNCED LYRICS"
 		feature = lyricRows(p.lyrics, p.lyricsStatus, p.state.elapsed, infoWidth, chartHeight)
-	} else if p.visual && p.analysisAvailable {
+	} else if (p.visual || hidden) && p.analysisAvailable {
 		feature = spectrumRows(p.levels, infoWidth, chartHeight, p.phase)
 	}
 	heading := activeTheme.box.h + " " + activeTheme.overlayTitle + " "
-	if p.live != nil {
+	if hidden {
+		heading = activeTheme.box.h + " BLIND LISTENING "
+	} else if p.melisma && p.tripDestination != "" && p.live == nil && t.radioFormat == "" {
+		heading = activeTheme.box.h + " TRIP · " + strings.ToUpper(p.tripDestination) + " "
+	} else if p.live != nil {
 		heading = activeTheme.box.h + " " + strings.ToUpper(p.live.station.name) + " "
 	} else if p.melisma && p.engine != nil {
 		heading = activeTheme.box.h + " " + strings.ToUpper(p.melismaHeading()) + " "
@@ -322,7 +344,7 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 		place(blank)
 	}
 	source := t.source
-	if source.artworkSize != size {
+	if !hidden && source.artworkSize != size {
 		source.artworkSize = size
 		source.artworkRows = make([]string, size)
 		art := source.artwork(t)
@@ -330,7 +352,7 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 			source.artworkRows[i] = artworkRow(art, i, size)
 		}
 	}
-	nativeCover := p.kittyGraphics && p.finder == nil && p.playlistDialog == nil && p.radioPicker == nil && p.queueView == nil && p.themePicker == nil && p.coverPrompt == nil && source.cover != nil && len(source.cover.png) > 0
+	nativeCover := !hidden && p.kittyGraphics && p.finder == nil && p.playlistDialog == nil && p.radioPicker == nil && p.queueView == nil && p.themePicker == nil && p.coverPrompt == nil && source.cover != nil && len(source.cover.png) > 0
 	if nativeCover {
 		p.coverPlacement = kittyPlacement{art: source.cover, row: y + 1, column: x + 2, columns: size * 2, rows: size}
 	}
@@ -349,9 +371,11 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 		default:
 			text = cell("", infoWidth)
 		}
-		art := source.artworkRows[i]
-		if nativeCover {
-			art = emptyArt
+		art := emptyArt
+		if hidden {
+			art = artworkRow(nil, i, size)
+		} else if !nativeCover {
+			art = source.artworkRows[i]
 		}
 		place(boxSide(" " + art + "  " + text + " "))
 	}
@@ -367,7 +391,7 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 		controls = " Space Pause/Resume  /radio Stations"
 	} else if t.radioFormat != "" {
 		controls = " Space Pause  </> Track  ←/→ 10s  /radio Stations"
-	} else if p.likes.contains(t.likeID) {
+	} else if !hidden && p.likes.contains(t.likeID) {
 		controls = " Space Pause  </> Skip  ←/→ 10s  * Unlike"
 	}
 	if p.melisma && p.engine != nil && p.live == nil && t.radioFormat == "" {
@@ -385,7 +409,10 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 	if columns >= 49 && p.live == nil {
 		footer += "  +/- Vol"
 	}
-	if columns >= 60 && source.cover == nil && source.artist != "" {
+	if hidden {
+		footer = " Esc Library  R Reveal song  +/- Vol"
+	}
+	if !hidden && columns >= 60 && source.cover == nil && source.artist != "" {
 		footer += "  C Cover"
 	}
 	place(boxSide(cell(footer, columns-2)))

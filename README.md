@@ -120,6 +120,13 @@ Run `brew install game-music-emu` once to enable **Chiptune Radio**. Elsewhere s
 - **/gain** cycles through track ReplayGain, album ReplayGain and off. **/output** opens the audio output picker. On macOS this changes the system output.
 - Desktop media controls support play, pause, next and previous when available. On Linux and Windows, the newer player controls and output picker require a matching `dhunn` build.
 
+### Listening modes
+
+- **/tape** saves your five most recent local track plays in order. Use **/tape 10** for a longer tape. The cassette card shows the date and runtime, and saving creates a regular playlist.
+- **/trip rainy neon** starts a Melisma journey toward a described sound (requires CLAP embeddings). **/trip to artist** heads toward a song, album, or artist. Now Playing shows the destination, route progress when available, and Melisma’s reasons. Use F, B, and S to steer.
+- **/blind** hides the current song’s details, artwork, and lyrics in Now Playing. Press R to reveal the song. The next local track is hidden again until you toggle **/blind** off.
+- **/timecapsule** resurfaces a local track you haven’t heard in at least 30 days or a forgotten like. The player shows the reason. It uses Elsewhere’s saved listening history and can also use matched history imported into Melisma.
+
 ### Themes
 
 `/themes` offers **Amber** (default), **MAGI**, **Phosphor**, **Synthwave**, **Ice**, **Sakura** and **Mono**. Themes change colors, frame styles, labels and the spectrum animation. **MAGI** is modeled on the NERV MAGI system from Neon Genesis Evangelion: orange on black with slanted frames, hex rain, and a strip of three computers that vote on the current state. MELCHIOR·1 follows playback (承認 playing, 保留 paused, 否決 stopped), BALTHASAR·2 the like on the current track, and CASPER·3 the queue. The choice is saved in `Elsewhere/theme` in your config folder.

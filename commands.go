@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // paletteCommand is one entry in the fuzzy command list shown above the prompt.
@@ -11,6 +12,10 @@ type paletteCommand struct{ name, description, alias string }
 
 var slashCommands = []paletteCommand{
 	{"np", "New playlist", ""},
+	{"tape", "Save your last five tracks as a mixtape (/tape 10)", ""},
+	{"trip", "Take a Melisma journey (/trip rainy neon or /trip to artist)", ""},
+	{"blind", "Hide the song in Now Playing until you press R", ""},
+	{"timecapsule", "Bring back a song from your listening history", ""},
 	{"find", "Find songs, artists, albums and playlists", ""},
 	{"repeat", "Cycle repeat off, track, album", ""},
 	{"shuffle", "Toggle shuffle within the current collection", ""},
@@ -133,6 +138,24 @@ func (p *player) runSlashCommand(command string, prompt searchPrompt) bool {
 	// Commands that take words: /toward the beatles, /vibe rainy night, /friend bea.
 	words := strings.Fields(command)
 	if len(words) > 0 {
+		name := strings.ToLower(words[0])
+		argument := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(command), words[0]))
+		switch name {
+		case "tape", "trip":
+			p.query = prompt.previousQuery
+			p.search()
+			p.albumIndex, p.trackIndex = prompt.albumIndex, prompt.trackIndex
+			if name == "tape" {
+				p.openTape(argument, time.Now())
+			} else {
+				p.startTrip(argument)
+			}
+			return true
+		}
+	}
+	command = strings.ToLower(command)
+	words = strings.Fields(command)
+	if len(words) > 0 {
 		switch words[0] {
 		case "toward", "to", "vibe", "friend":
 			rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(command, words[0]), " "))
@@ -158,7 +181,7 @@ func (p *player) runSlashCommand(command string, prompt searchPrompt) bool {
 	switch command {
 	case "np", "ap", "radio", "q", "queue", "themes", "theme", "find", "repeat", "shuffle", "gain", "output", "crossfade":
 	case "melisma", "engine", "further", "back", "surprise", "never", "dislike":
-	case "drift", "usual", "new", "taste", "profile", "analyze":
+	case "drift", "usual", "new", "taste", "profile", "analyze", "blind", "timecapsule":
 	default:
 		return false
 	}
@@ -166,6 +189,19 @@ func (p *player) runSlashCommand(command string, prompt searchPrompt) bool {
 	p.search()
 	p.albumIndex, p.trackIndex = prompt.albumIndex, prompt.trackIndex
 	switch command {
+	case "blind":
+		p.blind = !p.blind
+		p.revealed = false
+		p.nextMedia = time.Time{}
+		p.notice = "Blind listening off"
+		if p.blind {
+			p.stopCoverLookup()
+			p.coverPrompt = nil
+			p.popup = p.localSong() != nil
+			p.notice = "Blind listening on · R reveals the song"
+		}
+	case "timecapsule":
+		p.openTimeCapsule(time.Now())
 	case "melisma", "engine":
 		p.startMelisma()
 	case "further", "back", "surprise":

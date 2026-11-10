@@ -14,6 +14,11 @@ func (p *player) overlayPlaylist(rows []string, width int) {
 		return boxSide(style + cell(text, columns-2) + panel + amber)
 	}
 	if d.kind == "np" {
+		if d.tapeCard != "" {
+			heading = " MIXTAPE "
+			footer = " Tab Field  Enter Save tape  Esc Cancel"
+			body = append(body, row(" [◉ ═════ ◉]  "+d.tapeCard, amber))
+		}
 		nameStyle, descriptionStyle := selected, dim
 		name, description := d.name, d.description
 		if d.descriptionFocused {
@@ -66,6 +71,8 @@ func (p *player) overlayPlaylist(rows []string, width int) {
 	x, y := (width-columns)/2+1, (len(rows)-len(dialog))/2
 	cursor := fmt.Sprintf("\x1b[%dG", x)
 	for i, line := range dialog {
-		rows[y+i] += cursor + panel + amber + line + reset
+		if y+i >= 0 && y+i < len(rows) {
+			rows[y+i] += cursor + panel + amber + line + reset
+		}
 	}
 }

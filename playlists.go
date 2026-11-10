@@ -68,6 +68,7 @@ type searchPrompt struct {
 
 type playlistDialog struct {
 	tracks                    []string
+	tapeCard                  string
 	kind                      string
 	name, description, filter string
 	descriptionFocused        bool
@@ -131,7 +132,7 @@ func (p *player) handleSearch(key string) {
 	}
 	switch key {
 	case "\r", "\n":
-		command := strings.ToLower(strings.TrimSpace(prompt.input))
+		command := strings.TrimSpace(prompt.input)
 		if selected := p.selectedCommand(); selected != "" {
 			command = selected
 		}
