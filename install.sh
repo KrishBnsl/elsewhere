@@ -4,6 +4,9 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/KrishBnsl/elsewhere/main/install.sh | sh
 #
+# macOS (Apple Silicon) and Linux (x86_64, arm64) get ready-made programs; other Macs build
+# from source. Windows has install.ps1.
+#
 # Options (pass after `sh -s --` when piping, e.g. `| sh -s -- --source`):
 #   --source           build from source instead of downloading (needs Go 1.25+ and Rust)
 #   --bin-dir DIR      where to put the programs (default: ~/.local/bin)
@@ -14,7 +17,8 @@
 #   --yes              don't ask; use the defaults
 #   --uninstall        remove the two programs (your library and history stay)
 #
-# Environment: ELSEWHERE_RELEASE_URL overrides where prebuilt programs come from.
+# Environment: ELSEWHERE_RELEASE_URL overrides where prebuilt programs come from (a file://
+# URL works too).
 
 set -eu
 
@@ -63,7 +67,24 @@ ask() { # ask "question" default → answer
 }
 yes_to() { case "$(ask "$1 [Y/n]" y)" in [nN]*) return 1 ;; *) return 0 ;; esac; }
 
-[ "$(uname -s)" = "Darwin" ] || fail "Elsewhere plays through macOS audio, so it needs a Mac."
+OS="$(uname -s)"
+case "$OS" in
+    Darwin|Linux) ;;
+    *) fail "this installer is for macOS and Linux; on Windows use install.ps1 (see the README)" ;;
+esac
+
+# Linux: plays sound through ALSA (PipeWire and PulseAudio provide it too).
+has_library() {
+    { ldconfig -p 2>/dev/null || true; } | grep -q "$1" ||
+        ls /usr/lib*/"$1"* /usr/lib/*-linux-gnu/"$1"* /lib/*-linux-gnu/"$1"* >/dev/null 2>&1
+}
+package_hint() { # package_hint debian-name fedora-name arch-name
+    if command -v apt-get >/dev/null 2>&1; then echo "sudo apt install $1"
+    elif command -v dnf >/dev/null 2>&1; then echo "sudo dnf install $2"
+    elif command -v pacman >/dev/null 2>&1; then echo "sudo pacman -S $3"
+    else echo "install $1 with your package manager"
+    fi
+}
 
 if [ "$UNINSTALL" -eq 1 ]; then
     for program in elsewhere dhunn; do
@@ -72,8 +93,13 @@ if [ "$UNINSTALL" -eq 1 ]; then
             say "removed $BIN_DIR/$program"
         fi
     done
-    note "Your Melisma library and listening history are still in ~/Library/Application Support/dhunn,"
-    note "and Elsewhere's likes, playlists and theme in ~/Library/Application Support/Elsewhere."
+    if [ "$OS" = Darwin ]; then
+        note "Your Melisma library and listening history are still in ~/Library/Application Support/dhunn,"
+        note "and Elsewhere's likes, playlists and theme in ~/Library/Application Support/Elsewhere."
+    else
+        note "Your Melisma library and listening history are still in ~/.local/share/dhunn,"
+        note "and Elsewhere's likes, playlists and theme in ~/.config/Elsewhere."
+    fi
     exit 0
 fi
 
@@ -83,11 +109,27 @@ trap 'rm -rf "$WORK"' EXIT
 
 # ---- 1. The programs ----
 
+# Linux: Melisma's ONNX Runtime needs glibc 2.38 or newer, whether downloaded or built.
+if [ "$OS" = Linux ]; then
+    glibc="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}')"
+    major="${glibc%%.*}"
+    minor="${glibc#*.}"
+    minor="${minor%%.*}"
+    if [ -z "$glibc" ]; then
+        fail "this Linux doesn't use glibc (Alpine and other musl systems aren't supported yet)"
+    elif [ "$major" -lt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -lt 38 ]; }; then
+        fail "Melisma needs glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39 or later); this system has $glibc"
+    fi
+fi
+
 install_prebuilt() {
-    arch="$(uname -m)"
-    [ "$arch" = "arm64" ] || return 1
-    asset="elsewhere-macos-arm64.tar.gz"
-    say "Downloading Elsewhere and Melisma for Apple Silicon"
+    case "$OS-$(uname -m)" in
+        Darwin-arm64) asset="elsewhere-macos-arm64.tar.gz" what="Apple Silicon" ;;
+        Linux-x86_64|Linux-amd64) asset="elsewhere-linux-x86_64.tar.gz" what="Linux (x86_64)" ;;
+        Linux-aarch64|Linux-arm64) asset="elsewhere-linux-arm64.tar.gz" what="Linux (arm64)" ;;
+        *) return 1 ;;
+    esac
+    say "Downloading Elsewhere and Melisma for $what"
     curl -fsSL "$RELEASE_URL/$asset" -o "$WORK/$asset" 2>/dev/null || return 1
     if curl -fsSL "$RELEASE_URL/$asset.sha256" -o "$WORK/$asset.sha256" 2>/dev/null; then
         want="$(cut -d' ' -f1 <"$WORK/$asset.sha256")"
@@ -96,13 +138,25 @@ install_prebuilt() {
     fi
     tar -xzf "$WORK/$asset" -C "$WORK"
     [ -x "$WORK/elsewhere" ] && [ -x "$WORK/dhunn" ] || fail "the download is missing a program"
+    # A system older than the one they were built on can't run them: build instead.
+    if ! "$WORK/dhunn" --help >/dev/null 2>&1 || ! "$WORK/elsewhere" --help >/dev/null 2>&1; then
+        say "The ready-made programs don't run on this system"
+        return 1
+    fi
     install -m 755 "$WORK/elsewhere" "$WORK/dhunn" "$BIN_DIR/"
 }
 
 install_from_source() {
     say "Building from source"
     missing=""
-    command -v git >/dev/null 2>&1 || missing="$missing git (xcode-select --install)"
+    if [ "$OS" = Darwin ]; then
+        command -v git >/dev/null 2>&1 || missing="$missing git (xcode-select --install)"
+    else
+        command -v git >/dev/null 2>&1 || missing="$missing git ($(package_hint git git git))"
+        command -v cc >/dev/null 2>&1 || missing="$missing a-C-compiler ($(package_hint build-essential gcc base-devel))"
+        command -v pkg-config >/dev/null 2>&1 || missing="$missing pkg-config ($(package_hint pkg-config pkgconf-pkg-config pkgconf))"
+        pkg-config --exists alsa 2>/dev/null || missing="$missing ALSA-headers ($(package_hint libasound2-dev alsa-lib-devel alsa-lib))"
+    fi
     command -v go >/dev/null 2>&1 || missing="$missing Go-1.25+ (brew install go, or https://go.dev/dl)"
     command -v cargo >/dev/null 2>&1 || missing="$missing Rust (https://rustup.rs)"
     if [ -n "$missing" ]; then
@@ -137,7 +191,7 @@ case ":$PATH:" in
         line="export PATH=\"$BIN_DIR:\$PATH\""
         case "${SHELL:-}" in
             */zsh) rc="$HOME/.zshrc" ;;
-            */bash) rc="$HOME/.bash_profile" ;;
+            */bash) if [ "$OS" = Darwin ]; then rc="$HOME/.bash_profile"; else rc="$HOME/.bashrc"; fi ;;
             *) rc="" ;;
         esac
         if [ "$MODIFY_PATH" -eq 1 ] && [ -n "$rc" ]; then
@@ -151,6 +205,10 @@ case ":$PATH:" in
         ;;
 esac
 DHUNN="$BIN_DIR/dhunn"
+
+if [ "$OS" = Linux ] && ! has_library libasound.so.2; then
+    say "Elsewhere plays sound through ALSA, which isn't installed: $(package_hint libasound2 alsa-lib alsa-lib)"
+fi
 
 # ---- 3. Melisma's setup ----
 
@@ -179,6 +237,10 @@ note "Type /melisma to let Melisma choose what plays next; /q shows what's comin
 if [ "$MUSIC" != "$HOME/Music" ]; then
     note "Your music is elsewhere: elsewhere \"$MUSIC\""
 fi
-if [ ! -e /opt/homebrew/opt/game-music-emu/lib/libgme.dylib ] && [ ! -e /usr/local/opt/game-music-emu/lib/libgme.dylib ]; then
-    note "Optional: brew install game-music-emu  (for Chiptune Radio)"
+if [ "$OS" = Darwin ]; then
+    if [ ! -e /opt/homebrew/opt/game-music-emu/lib/libgme.dylib ] && [ ! -e /usr/local/opt/game-music-emu/lib/libgme.dylib ]; then
+        note "Optional: brew install game-music-emu  (for Chiptune Radio)"
+    fi
+elif ! has_library libgme.so; then
+    note "Optional: $(package_hint libgme0 game-music-emu libgme)  (for Chiptune Radio)"
 fi

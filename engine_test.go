@@ -9,11 +9,16 @@ import (
 	"testing"
 )
 
-// TestFakeEngine is not a test: run as a child process, it stands in for `dhunn engine`.
-func TestFakeEngine(t *testing.T) {
-	if os.Getenv("FAKE_ENGINE") != "1" {
-		return
+// TestMain lets this test program stand in for `dhunn engine` when the tests below start it
+// as the engine (with FAKE_ENGINE=1), on every platform.
+func TestMain(m *testing.M) {
+	if os.Getenv("FAKE_ENGINE") == "1" {
+		fakeEngineMain()
 	}
+	os.Exit(m.Run())
+}
+
+func fakeEngineMain() {
 	in := bufio.NewScanner(os.Stdin)
 	log, _ := os.OpenFile(os.Getenv("FAKE_ENGINE_LOG"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	for in.Scan() {
@@ -50,17 +55,14 @@ func TestFakeEngine(t *testing.T) {
 // fakeEngine points MELISMA_ENGINE at the fake and returns where its requests are logged.
 func fakeEngine(t *testing.T) string {
 	logPath := t.TempDir() + "/requests"
-	script := t.TempDir() + "/engine"
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A tiny launcher so `<engine> engine` runs this test binary as the fake engine.
-	body := fmt.Sprintf("#!/bin/sh\nFAKE_ENGINE=1 FAKE_ENGINE_LOG=%q exec %q -test.run=TestFakeEngine\n", logPath, exe)
-	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MELISMA_ENGINE", script)
+	// The engine inherits these, so `<this test program> engine` runs fakeEngineMain.
+	t.Setenv("FAKE_ENGINE", "1")
+	t.Setenv("FAKE_ENGINE_LOG", logPath)
+	t.Setenv("MELISMA_ENGINE", exe)
 	return logPath
 }
 

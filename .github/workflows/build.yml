@@ -22,9 +22,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, asset: elsewhere-macos-arm64.tar.gz }
-          - { os: ubuntu-22.04, asset: elsewhere-linux-x86_64.tar.gz }
-          - { os: ubuntu-22.04-arm, asset: elsewhere-linux-arm64.tar.gz }
+          - { os: macos-latest, asset: elsewhere-macos-arm64.tar.gz }
+          - { os: ubuntu-24.04, asset: elsewhere-linux-x86_64.tar.gz }
+          - { os: ubuntu-24.04-arm, asset: elsewhere-linux-arm64.tar.gz }
           - { os: windows-latest, asset: elsewhere-windows-x86_64.zip, exe: .exe }
     runs-on: ${{ matrix.os }}
     env:
@@ -98,6 +98,30 @@ jobs:
         run: |
           ./pkg/elsewhere$EXE --help
           printf '%s\n' '{"op":"state"}' | ./pkg/dhunn$EXE audio
+      - name: Try the installer on the package
+        if: runner.os != 'Windows'
+        env:
+          DHUNN_DB: ${{ runner.temp }}/lib.db
+          ELSEWHERE_RELEASE_URL: file://${{ github.workspace }}/out
+        run: |
+          mkdir -p "$RUNNER_TEMP/music"
+          sh elsewhere/install.sh --yes --name ci --bin-dir "$RUNNER_TEMP/bin" --music "$RUNNER_TEMP/music" --no-modify-path
+          "$RUNNER_TEMP/bin/dhunn" user list | grep -q '^ci '
+          sh elsewhere/install.sh --uninstall --bin-dir "$RUNNER_TEMP/bin"
+          test ! -e "$RUNNER_TEMP/bin/dhunn"
+      - name: Try the installer on the package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          DHUNN_DB: ${{ runner.temp }}\lib.db
+        run: |
+          $env:ELSEWHERE_RELEASE_URL = Join-Path $PWD 'out'
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\music" | Out-Null
+          ./elsewhere/install.ps1 -Yes -Name ci -BinDir "$env:RUNNER_TEMP\bin" -Music "$env:RUNNER_TEMP\music" -NoModifyPath
+          $users = & "$env:RUNNER_TEMP\bin\dhunn.exe" user list
+          if (-not ($users -match '^ci ')) { throw "no ci user: $users" }
+          ./elsewhere/install.ps1 -Uninstall -BinDir "$env:RUNNER_TEMP\bin"
+          if (Test-Path "$env:RUNNER_TEMP\bin\dhunn.exe") { throw 'uninstall left dhunn.exe' }
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
