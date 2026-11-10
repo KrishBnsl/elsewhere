@@ -162,3 +162,15 @@ func TestJamSendsLargeFLACAsMP3(t *testing.T) {
 		t.Fatal("source FLAC changed")
 	}
 }
+
+func TestReceivedJamAudioSkipsLibraryCoverLookup(t *testing.T) {
+	a := receivedJamAlbum(filepath.Join(t.TempDir(), "track.mp3"), friendshare.Song{
+		Title: "Shared track", Artist: "Artist", Album: "Album",
+	})
+	p := &player{active: a, popup: true}
+	p.updateCover()
+	p.handle("C")
+	if p.current().source != a || !a.loaded || p.coverPrompt != nil || p.coverLookup.result != nil {
+		t.Fatal("received track must have a display album and skip library cover lookup")
+	}
+}

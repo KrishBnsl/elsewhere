@@ -22,6 +22,15 @@ type jamTransfer struct {
 	err      error
 }
 
+func receivedJamAlbum(path string, song friendshare.Song) *album {
+	// Temporary audio shares a directory with unrelated files.
+	a := &album{title: song.Album, artist: song.Artist, loaded: true}
+	a.tracks = []track{{
+		path: path, title: song.Title, artist: song.Artist, album: song.Album, source: a, jamAudio: true,
+	}}
+	return a
+}
+
 func (play *jamPlayback) clearAudio() {
 	if play.cancelAudio != nil {
 		play.cancelAudio()

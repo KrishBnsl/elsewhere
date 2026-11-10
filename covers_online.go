@@ -69,7 +69,7 @@ func (p *player) updateCover() {
 		}
 	}
 	t := p.current()
-	if !p.popup || t == nil || p.searching || p.playlistDialog != nil || p.radioPicker != nil || p.queueView != nil || p.themePicker != nil {
+	if !p.popup || t == nil || t.source == nil || t.jamAudio || p.searching || p.playlistDialog != nil || p.radioPicker != nil || p.queueView != nil || p.themePicker != nil {
 		p.coverPrompt = nil
 		return
 	}

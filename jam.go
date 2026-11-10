@@ -238,11 +238,7 @@ func (p *player) tickJam(now time.Time) {
 	if play.track != entry.ID || p.current() == nil || p.current().path != path || p.restored {
 		a, i := p.findTrack(path)
 		if path == play.received[entry.ID] {
-			song := entry.Song
-			a = &album{title: song.Album, artist: song.Artist, tracks: []track{
-				{path: path, title: song.Title, artist: song.Artist, album: song.Album, jamAudio: true},
-			}}
-			i = 0
+			a, i = receivedJamAlbum(path, entry.Song), 0
 		}
 		p.leaving("choose")
 		play.starting = true

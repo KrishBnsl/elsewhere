@@ -387,7 +387,7 @@ func (p *player) handle(key string) bool {
 			if p.hiddenTrack() {
 				return true
 			}
-			if t := p.current(); t != nil && t.source.artist != "" && t.source.cover == nil && p.coverLookup.result == nil {
+			if t := p.current(); t != nil && t.source != nil && !t.jamAudio && t.source.artist != "" && t.source.cover == nil && p.coverLookup.result == nil {
 				t.source.loaded = false
 				t.source.coverPromptDismissed = false
 			}
