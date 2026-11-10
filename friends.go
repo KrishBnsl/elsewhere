@@ -22,12 +22,18 @@ import (
 )
 
 type friendsClient struct {
-	base, credentialPath, token string
+	base, credentialPath, token, displayName string
 }
 
+const defaultFriendsURL = "https://elsewhere-friends.onrender.com"
+const friendsDisabled = "Friends is disabled · unset ELSEWHERE_FRIENDS_URL to use the hosted service"
+
 func newFriendsClient(config string) (*friendsClient, error) {
-	raw := os.Getenv("ELSEWHERE_FRIENDS_URL")
-	if raw == "" {
+	raw := strings.TrimSpace(os.Getenv("ELSEWHERE_FRIENDS_URL"))
+	switch raw {
+	case "":
+		raw = defaultFriendsURL
+	case "off":
 		return nil, nil
 	}
 	u, err := url.Parse(raw)
@@ -48,6 +54,9 @@ func newFriendsClient(config string) (*friendsClient, error) {
 		return nil, err
 	}
 	f.token = strings.TrimSpace(string(data))
+	if name, err := os.ReadFile(f.credentialPath + ".name"); err == nil {
+		f.displayName = strings.TrimSpace(string(name))
+	}
 	return f, nil
 }
 
@@ -171,10 +180,12 @@ type friendsResult struct {
 }
 
 type friendsPanel struct {
-	mode   string
-	index  int
-	song   *track
-	invite string
+	mode       string
+	index      int
+	song       *track
+	invite     string
+	disconnect *friendshare.Person
+	form       *friendForm
 }
 
 type friendsState struct {
@@ -204,7 +215,7 @@ func (p *player) friendsRequest(op string, request friendshare.Request) {
 		p.notice = f.err.Error()
 		return
 	case f.client == nil:
-		p.notice = "Set ELSEWHERE_FRIENDS_URL to connect to a friends service"
+		p.notice = friendsDisabled
 		return
 	case f.busy():
 		p.notice = "Friends request in progress"
@@ -286,9 +297,15 @@ func (p *player) tickFriends(now time.Time) {
 		case "invite":
 			f.panel = &friendsPanel{mode: "friends", invite: result.reply.Code}
 			p.notice = "Invite expires in 24 hours"
-		case "accept", "connect":
+		case "accept", "connect", "name":
 			f.panel = &friendsPanel{mode: "friends"}
 			p.notice = "Connected as " + f.reply.Me.Name
+			if result.op == "name" {
+				p.notice = "Display name saved"
+			}
+			if err := f.client.rememberName(f.reply.Me.Name); err != nil {
+				p.notice += " · could not save local name"
+			}
 		case "send":
 			f.panel = nil
 			p.notice = "Song sent"
@@ -309,6 +326,10 @@ func (p *player) tickFriends(now time.Time) {
 		case "taste-off":
 			p.notice = "Taste sharing off"
 		case "disconnect":
+			if f.panel != nil && f.panel.mode == "friends" {
+				f.panel.disconnect = nil
+				f.panel.index = min(f.panel.index, max(0, len(f.reply.Friends)-1))
+			}
 			p.notice = "Friend disconnected"
 		}
 	default:
@@ -339,16 +360,25 @@ func (p *player) friendsCommand(name, arg string, selection *track) {
 		}
 		p.friendsRequest(name, friendshare.Request{Name: arg, Code: os.Getenv("ELSEWHERE_FRIENDS_SETUP_KEY")})
 	case "accept":
+		if p.social.err != nil {
+			p.notice = p.social.err.Error()
+			return
+		}
+		if p.social.client == nil {
+			p.notice = friendsDisabled
+			return
+		}
 		code, name, _ := strings.Cut(arg, " ")
 		name = strings.TrimSpace(name)
 		if name == "" {
-			name = os.Getenv("ELSEWHERE_FRIENDS_NAME")
+			name = p.friendDisplayName()
 		}
-		if code == "" || p.social.reply.Me.ID == "" && strings.TrimSpace(name) == "" {
-			p.notice = "Use /accept CODE YOUR NAME"
-			return
+		if code != "" && name != "" {
+			p.friendsRequest("accept", friendshare.Request{Code: code, Name: name})
+		} else {
+			p.social.panel = &friendsPanel{form: &friendForm{code: code, name: name, nameFocused: code != ""}}
+			p.notice = ""
 		}
-		p.friendsRequest("accept", friendshare.Request{Code: code, Name: name})
 	case "invite":
 		p.friendsRequest(name, friendshare.Request{})
 	case "friends", "send", "inbox":
@@ -373,6 +403,24 @@ func (p *player) friendsCommand(name, arg string, selection *track) {
 func (p *player) handleFriends(key string) {
 	f := &p.social
 	panel := f.panel
+	if panel.form != nil {
+		p.handleFriendForm(key)
+		return
+	}
+	if target := panel.disconnect; target != nil {
+		switch key {
+		case "\x1b", "n", "N":
+			panel.disconnect = nil
+		case "\r", "\n", "y", "Y":
+			if !slices.ContainsFunc(f.reply.Friends, func(friend friendshare.Person) bool { return friend.ID == target.ID }) {
+				panel.disconnect = nil
+				p.notice = "Friend is already disconnected"
+				return
+			}
+			p.friendsRequest("disconnect", friendshare.Request{Friend: target.ID})
+		}
+		return
+	}
 	count := len(f.reply.Friends)
 	if panel.mode == "jam" {
 		if key == "L" && f.reply.Jam != nil {
@@ -402,9 +450,15 @@ func (p *player) handleFriends(key string) {
 		if panel.mode == "friends" {
 			p.friendsRequest("invite", friendshare.Request{})
 		}
-	case "D":
+	case "r", "R":
+		if panel.mode == "friends" && f.reply.Me.ID != "" {
+			panel.form = &friendForm{name: p.friendDisplayName(), nameFocused: true, rename: true}
+			p.notice = ""
+		}
+	case "d", "D":
 		if panel.mode == "friends" && count > 0 {
-			p.friendsRequest("disconnect", friendshare.Request{Friend: f.reply.Friends[panel.index].ID})
+			target := f.reply.Friends[panel.index]
+			panel.disconnect = &target
 		}
 	case "\r", "\n":
 		if count == 0 {
@@ -477,7 +531,7 @@ func (p *player) playFriendSong(card friendshare.Card) {
 func (p *player) overlayFriends(rows []string, width int) {
 	f, view := &p.social, p.social.panel
 	columns := min(width-4, 80)
-	heading, footer := " FRIENDS ", " I Invite · D Disconnect · Esc Close"
+	heading, footer := " FRIENDS ", " I Invite · R Rename · d Disconnect · Esc Close"
 	var items []string
 	switch view.mode {
 	case "jam":
@@ -492,7 +546,13 @@ func (p *player) overlayFriends(rows []string, width int) {
 	case "send":
 		heading, footer = " SEND SONG ", " ↑↓ Select · Enter Send · Esc Close"
 	}
-	if view.mode != "inbox" && view.mode != "jam" {
+	if form := view.form; form != nil {
+		heading, footer = " ACCEPT INVITE ", " Tab Field · Enter Accept · Esc Cancel"
+		if form.rename {
+			heading, footer = " FRIENDS DISPLAY NAME ", " Enter Save · Esc Cancel"
+		}
+	}
+	if view.form == nil && view.mode != "inbox" && view.mode != "jam" {
 		for _, person := range f.reply.Friends {
 			items = append(items, person.Name)
 		}
@@ -501,27 +561,49 @@ func (p *player) overlayFriends(rows []string, width int) {
 	add := func(s, style string) {
 		lines = append(lines, boxSide(style+cell(s, columns-2)+panel+amber))
 	}
-	if view.invite != "" {
-		add(" Share this command with your friend", amber)
-		add(" /accept "+view.invite, selected)
+	if view.invite != "" && view.form == nil {
+		add(" Send this code to your friend. They open /accept.", amber)
+		add(" "+view.invite, selected)
 	}
 	if view.song != nil {
 		add(" "+view.song.title+" / "+view.song.artist, amber)
 	}
-	if len(items) == 0 {
-		add(" Nothing here yet", dim)
-	}
-	n := min(8, len(rows)-8)
-	start := max(0, min(view.index-n/2, len(items)-n))
-	for i := start; i < min(len(items), start+n); i++ {
-		if i == view.index {
-			add(" › "+items[i], selected)
+	if form := view.form; form != nil {
+		code, name := form.code, form.name
+		codeStyle, nameStyle := selected, dim
+		if form.nameFocused {
+			codeStyle, nameStyle = dim, selected
+			name += "_"
 		} else {
-			add("   "+items[i], dim)
+			code += "_"
+		}
+		if !form.rename {
+			add(" Invite code    "+code, codeStyle)
+		}
+		add(" Display name   "+name, nameStyle)
+		if f.pending == "accept" || f.pending == "name" {
+			add(" Waiting for friends service…", dim)
+		}
+	} else {
+		if len(items) == 0 {
+			add(" Nothing here yet", dim)
+		}
+		n := min(8, len(rows)-8)
+		start := max(0, min(view.index-n/2, len(items)-n))
+		for i := start; i < min(len(items), start+n); i++ {
+			if i == view.index {
+				add(" › "+items[i], selected)
+			} else {
+				add("   "+items[i], dim)
+			}
 		}
 	}
 	if p.notice != "" {
 		add(" "+p.notice, dim)
+	}
+	if target := view.disconnect; target != nil {
+		add(" Disconnect from "+target.Name+"?", amber)
+		footer = " Enter Disconnect · Esc Cancel"
 	}
 	add(footer, dim)
 	lines = append(lines, boxBottom(columns))

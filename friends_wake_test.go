@@ -69,3 +69,30 @@ func TestFriendsReadinessWorksWithOlderSelfHostedService(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestFriendsDefaultUsesExistingHostedCredential(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("ELSEWHERE_FRIENDS_URL", defaultFriendsURL)
+	existing, err := newFriendsClient(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := existing.prepare(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ELSEWHERE_FRIENDS_URL", "")
+	hosted, err := newFriendsClient(config)
+	if err != nil || hosted == nil || hosted.base != defaultFriendsURL || hosted.token != existing.token {
+		t.Fatal("the default URL did not reuse the hosted-service credential")
+	}
+	t.Setenv("ELSEWHERE_FRIENDS_URL", "http://127.0.0.1:8787")
+	local, err := newFriendsClient(config)
+	if err != nil || local == nil || local.base != "http://127.0.0.1:8787" || local.token != "" {
+		t.Fatal("a self-hosted override should use its own credential")
+	}
+	t.Setenv("ELSEWHERE_FRIENDS_URL", "off")
+	disabled, err := newFriendsClient(config)
+	if err != nil || disabled != nil {
+		t.Fatal("off should disable the friends client")
+	}
+}

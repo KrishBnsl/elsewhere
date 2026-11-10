@@ -74,6 +74,7 @@ type playlistDialog struct {
 	descriptionFocused        bool
 	index                     int
 	target                    *track
+	deleteTarget              *playlist
 	errorText                 string
 }
 
@@ -160,6 +161,27 @@ func (p *player) handleSearch(key string) {
 
 func (p *player) handlePlaylist(key string) {
 	d := p.playlistDialog
+	if target := d.deleteTarget; target != nil {
+		switch key {
+		case "\x1b":
+			d.deleteTarget, d.errorText = nil, ""
+		case "\r", "\n":
+			p.savePlaylist(func(lists *[]playlist) error {
+				for i, list := range *lists {
+					if list.Name != target.Name {
+						continue
+					}
+					if list.Description != target.Description || !slices.Equal(list.Tracks, target.Tracks) {
+						return fmt.Errorf("playlist changed in another window; restart Elsewhere and try again")
+					}
+					*lists = slices.Delete(*lists, i, i+1)
+					return nil
+				}
+				return fmt.Errorf("playlist no longer exists")
+			}, "Deleted playlist "+target.Name)
+		}
+		return
+	}
 	if key == "\x1b" {
 		p.playlistDialog = nil
 		return
@@ -199,11 +221,18 @@ func (p *player) handlePlaylist(key string) {
 	case "\x1b[B":
 		d.index = min(max(0, len(p.matchPlaylists(d.filter))-1), d.index+1)
 	case "\r", "\n":
+		matches := p.matchPlaylists(d.filter)
+		if d.kind == "dp" {
+			if d.index < len(matches) {
+				d.deleteTarget = &matches[d.index]
+				d.errorText = ""
+			}
+			return
+		}
 		if d.target == nil || d.target.radioFormat != "" {
 			d.errorText = "Select or play a local song first"
 			return
 		}
-		matches := p.matchPlaylists(d.filter)
 		if d.index >= len(matches) {
 			return
 		}

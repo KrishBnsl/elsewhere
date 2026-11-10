@@ -2,3 +2,9 @@
 /elsewhere
 .DS_Store
 /dist/
+
+# Local environment secrets
+/.env
+/.env.*
+!/.env.example
+.neon

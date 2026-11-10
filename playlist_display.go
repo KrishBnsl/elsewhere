@@ -13,7 +13,11 @@ func (p *player) overlayPlaylist(rows []string, width int) {
 	row := func(text, style string) string {
 		return boxSide(style + cell(text, columns-2) + panel + amber)
 	}
-	if d.kind == "np" {
+	if target := d.deleteTarget; target != nil {
+		heading = " DELETE PLAYLIST "
+		footer = " Enter Delete  Esc Back"
+		body = append(body, row(" Delete "+target.Name+"?", amber), row(" The music files stay in your library.", dim))
+	} else if d.kind == "np" {
 		if d.tapeCard != "" {
 			heading = " MIXTAPE "
 			footer = " Tab Field  Enter Save tape  Esc Cancel"
@@ -38,7 +42,13 @@ func (p *player) overlayPlaylist(rows []string, width int) {
 		if d.target != nil {
 			song = " " + d.target.title + " / " + d.target.artist
 		}
-		body = append(body, row(song, dim), row(" > "+d.filter+"_", selected))
+		if d.kind == "dp" {
+			heading = " DELETE PLAYLIST "
+			footer = " ↑↓ Move  Enter Select  Esc Cancel"
+		} else {
+			body = append(body, row(song, dim))
+		}
+		body = append(body, row(" > "+d.filter+"_", selected))
 		matches := p.matchPlaylists(d.filter)
 		if len(matches) == 0 {
 			hint := " No matching playlists"

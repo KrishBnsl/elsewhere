@@ -43,7 +43,7 @@ func (p *player) tickTaste(now time.Time) {
 func (p *player) setTasteSharing(value string) {
 	f := &p.social
 	if f.client == nil {
-		p.notice = "Set ELSEWHERE_FRIENDS_URL to connect to a friends service"
+		p.notice = friendsDisabled
 		return
 	}
 	path := f.client.credentialPath + ".taste-user"

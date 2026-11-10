@@ -95,6 +95,7 @@ Run `brew install game-music-emu` once to enable **Chiptune Radio**. Elsewhere s
 | / | Find music. A command list opens above the prompt: type to fuzzy-filter it, Tab or ↑/↓ to highlight a command, Enter to run it. Without a highlight, Enter keeps searching |
 | : | Open the command list (`:q` quit, `:themes`, `:radio`, `:queue`). Same keys as `/` |
 | /np, Enter | Create a playlist |
+| /dp, Enter | Find and delete a playlist, with confirmation |
 | /ap, Enter | Add the selected or playing song to a playlist |
 | /radio, Enter | Open the fuzzy station picker |
 | /themes, Enter | Pick a color theme. Moving previews it, Enter keeps it, Esc cancels. The choice is remembered |
@@ -129,13 +130,11 @@ Run `brew install game-music-emu` once to enable **Chiptune Radio**. Elsewhere s
 
 ### Share songs with friends
 
-This development version supports an invite-only, self-hosted friends service. It sends a song card with the title, artist, album and decoded-audio hash. Each recipient plays their own analyzed copy. Different encodings or masters can have different hashes.
+Elsewhere uses the hosted friends service by default. If someone sends you an invite, open Elsewhere and choose **/accept**. Paste the code, enter your display name, and press Enter. Elsewhere remembers your name. Press R in **/friends** to change it. Then use **/friends**, **/inbox**, or **/jam**. The service operator uses **/connect Your Name** once with the setup key before creating the first invite.
 
-1. Run the service with `ELSEWHERE_FRIENDS_SETUP_KEY` set to a long random secret, for example `go run ./cmd/friends-service -data /path/to/friends.json`. It listens on `127.0.0.1:8787` by default. For a local test, use `ELSEWHERE_FRIENDS_URL=http://127.0.0.1:8787`. For two machines, put it behind an HTTPS reverse proxy and point both players' `ELSEWHERE_FRIENDS_URL` at that URL.
-2. Start Elsewhere with the same setup key in its environment and run **/connect Your Name** once. Use **/invite** and share the displayed code. Your friend launches Elsewhere with the same service URL and runs **/accept CODE Their Name**. The setup key stays with the service operator.
-3. Play or select an analyzed song and use **/send**, then pick a friend. The recipient opens **/inbox** and presses Enter to play a match. **/friends** lists connections, and D disconnects the selected friend.
+Play or select an analyzed song and use **/send**, then pick a friend. Song cards contain the title, artist, album and decoded-audio hash. The recipient presses Enter in **/inbox** to play their own analyzed copy. Different encodings or masters can have different hashes. Music files, local paths, and play history stay on-device. In **/friends**, select a friend, press d, then Enter to disconnect.
 
-Both players need a Melisma build that supports the recording protocol. Music files, local paths, and play history stay on-device.
+For a self-hosted service, set `ELSEWHERE_FRIENDS_URL` to its HTTPS address on both players. For local testing, run `go run ./cmd/friends-service -data /path/to/friends.json` with `ELSEWHERE_FRIENDS_SETUP_KEY` set to a long random secret, then use `ELSEWHERE_FRIENDS_URL=http://127.0.0.1:8787`. Set `ELSEWHERE_FRIENDS_URL=off` to disable Friends entirely.
 
 #### Host it on a free tier
 

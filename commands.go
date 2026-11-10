@@ -12,6 +12,7 @@ type paletteCommand struct{ name, description, alias string }
 
 var slashCommands = []paletteCommand{
 	{"np", "New playlist", ""},
+	{"dp", "Delete a playlist", ""},
 	{"tape", "Save your last five tracks as a mixtape (/tape 10)", ""},
 	{"trip", "Take a Melisma journey (/trip rainy neon or /trip to artist)", ""},
 	{"blind", "Hide the song in Now Playing until you press R", ""},
@@ -33,7 +34,7 @@ var slashCommands = []paletteCommand{
 	{"friend", "Melisma: into a friend's taste (/friend name)", ""},
 	{"friends", "See connected friends and create an invite", ""},
 	{"invite", "Create a one-time friend invite", ""},
-	{"accept", "Accept a friend invite (/accept CODE YOUR NAME)", ""},
+	{"accept", "Open the friend invite form", ""},
 	{"connect", "Set up your device on a friends service (/connect NAME)", ""},
 	{"send", "Send a song to a connected friend", ""},
 	{"inbox", "Open songs shared by friends", ""},
@@ -193,7 +194,7 @@ func (p *player) runSlashCommand(command string, prompt searchPrompt) bool {
 		}
 	}
 	switch command {
-	case "np", "ap", "radio", "q", "queue", "themes", "theme", "find", "repeat", "shuffle", "gain", "output", "crossfade":
+	case "np", "ap", "dp", "radio", "q", "queue", "themes", "theme", "find", "repeat", "shuffle", "gain", "output", "crossfade":
 	case "melisma", "engine", "further", "back", "surprise", "never", "dislike":
 	case "drift", "usual", "new", "taste", "profile", "analyze", "blind", "timecapsule":
 	default:

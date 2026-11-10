@@ -187,6 +187,12 @@ func (s *service) change(state database, path, token string, req Request) (*data
 		if !known && !newAccount() {
 			return fail(http.StatusBadRequest, "invalid display name or service full")
 		}
+		if known && name != "" {
+			if !validText(name, 64) {
+				return fail(http.StatusBadRequest, "invalid display name")
+			}
+			me.Name = name
+		}
 		friend := db.Accounts[inv.Owner]
 		if !slices.Contains(me.Friends, inv.Owner) {
 			me.Friends = append(slices.Clone(me.Friends), inv.Owner)
@@ -194,6 +200,11 @@ func (s *service) change(state database, path, token string, req Request) (*data
 		}
 		db.Accounts[inv.Owner] = friend
 		delete(db.Invites, inviteKey)
+	case "/v1/name":
+		if name == "" || !validText(name, 64) {
+			return fail(http.StatusBadRequest, "invalid display name")
+		}
+		me.Name = name
 	case "/v1/send":
 		song := req.Song
 		if !validSong(song) {
