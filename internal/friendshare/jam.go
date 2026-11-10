@@ -55,7 +55,7 @@ func changeJam(db *database, me account, op string, req Request, now int64) erro
 		if !validSong(req.Song) || req.Duration < 1 || req.Duration > 24*60*60*1000 || len(jam.Queue) >= 32 {
 			return errors.New("invalid song or jam queue full")
 		}
-		jam.Queue = append(slices.Clone(jam.Queue), JamTrack{rand.Text(), req.Song, req.Duration})
+		jam.Queue = append(slices.Clone(jam.Queue), JamTrack{ID: rand.Text(), Song: req.Song, Duration: req.Duration, AddedBy: me.ID})
 	case "ready":
 		if !host && !jam.Joined {
 			return errors.New("join the jam first")

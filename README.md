@@ -146,7 +146,7 @@ Start both players with `ELSEWHERE_FRIENDS_URL` set to the Render HTTPS address.
 
 #### Jam rooms
 
-Open **/jam**, select a connected friend, and press Enter to invite them. They open **/jam** and press Enter to join. Either listener can select a local track and run **/jam add**. The room shows which recordings both devices have analyzed. The host controls play/pause (Space), seek ([ and ]), and skip (N). The service schedules playback and each player corrects drift against the room clock. Use **/jam leave** to end the two-person room.
+Open **/jam**, select a connected friend, and press Enter to invite them. They open **/jam** and press Enter to join. Either listener can select a local track and run **/jam add**. If your friend is missing the current recording, Elsewhere sends a temporary copy of the audio you queued (up to 32 MiB). When the sender has FFmpeg with the LAME MP3 encoder, Elsewhere converts FLAC to 192 kbps MP3 before sending. Only the sender needs FFmpeg. Both players and the Friends service must support transfers. Queue only audio you can share. The host controls play/pause (Space), seek ([ and ]), and skip (N). The service schedules playback and each player corrects drift against the room clock. Use **/jam leave** to end the two-person room.
 
 #### Taste sync
 

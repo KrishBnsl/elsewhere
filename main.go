@@ -49,6 +49,7 @@ func runTerminal(p *player) error {
 	}()
 	defer p.stopRadio()
 	defer p.clearLiveStation()
+	defer p.social.jam.clearAudio()
 	defer stopAudio()
 	startMediaControls()
 	defer stopMediaControls()

@@ -16,7 +16,7 @@ import (
 
 type track struct {
 	path, title, artist, album, albumArtist string
-	taggedAlbum, hasArtwork                 bool
+	taggedAlbum, hasArtwork, jamAudio       bool
 	source                                  *album
 	likeID                                  string
 	radioFormat                             string

@@ -149,7 +149,7 @@ func (p *player) nowPlaying(a *album, i int) {
 		p.tripLeg = p.picked.Leg
 	}
 	p.picked = nil
-	if t.radioFormat == "" && !a.radio {
+	if t.radioFormat == "" && !a.radio && !t.jamAudio {
 		if !resumed || len(p.listenHistory) == 0 {
 			p.rememberTrack(t)
 		}

@@ -318,7 +318,7 @@ func (p *player) leaving(op string) {
 // localSong is the playing song, if it's a local file (not radio).
 func (p *player) localSong() *track {
 	t := p.current()
-	if t == nil || t.radioFormat != "" || p.live != nil || p.active.radio {
+	if t == nil || t.jamAudio || t.radioFormat != "" || p.live != nil || p.active.radio {
 		return nil
 	}
 	return t

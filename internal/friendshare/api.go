@@ -65,6 +65,7 @@ type JamTrack struct {
 	ID       string `json:"id"`
 	Song     Song   `json:"song"`
 	Duration int64  `json:"duration_ms"`
+	AddedBy  string `json:"added_by,omitempty"`
 }
 
 type Jam struct {

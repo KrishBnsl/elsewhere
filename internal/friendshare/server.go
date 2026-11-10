@@ -38,6 +38,7 @@ type database struct {
 type service struct {
 	setup [32]byte
 	store stateStore
+	audio jamAudioCache
 }
 
 type stateChange func(database) (*database, Reply, int)
@@ -96,6 +97,10 @@ func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/v1/jam-audio/") {
+		s.serveJamAudio(w, r)
+		return
+	}
 	reply, code := s.request(w, r)
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(reply)
@@ -124,6 +129,11 @@ func (s *service) request(w http.ResponseWriter, r *http.Request) (Reply, int) {
 	})
 	if err != nil {
 		return fail(http.StatusServiceUnavailable, "friends storage unavailable")
+	}
+	if path == "/v1/jam-ready" && code == http.StatusOK && reply.Jam != nil && reply.Jam.CanPlay() {
+		s.audio.Lock()
+		delete(s.audio.clips, reply.Jam.Queue[0].ID)
+		s.audio.Unlock()
 	}
 	return reply, code
 }

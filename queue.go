@@ -46,7 +46,7 @@ func (p *player) handleCommand(key string) bool {
 }
 
 func queueable(t track) bool {
-	return t.path != "" && t.radioFormat == ""
+	return t.path != "" && t.radioFormat == "" && !t.jamAudio
 }
 
 func (p *player) queueIndex(path string) int {

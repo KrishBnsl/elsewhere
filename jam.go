@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -10,14 +12,20 @@ import (
 )
 
 type jamPlayback struct {
-	id, track, path string
-	queuedKey       string
-	engine          *engine
-	paths           map[string]string
-	checked         time.Time
-	synced          time.Time
-	clockOffset     time.Duration
-	starting        bool
+	id, track, path           string
+	queuedKey                 string
+	engine                    *engine
+	paths                     map[string]string
+	checked                   time.Time
+	synced                    time.Time
+	clockOffset               time.Duration
+	starting                  bool
+	waitingToPlay             bool
+	transferID, transferError string
+	transferNext              time.Time
+	transferResult            <-chan jamTransfer
+	cancelAudio               context.CancelFunc
+	received                  map[string]string
 }
 
 func (p *player) inJam() bool {
@@ -86,11 +94,17 @@ func (p *player) jamTransport(key string) bool {
 	switch key {
 	case " ", "play", "pause":
 		op := "play"
-		if key == "pause" || key == " " && jam.Playing {
+		if key == "pause" || key == " " && (jam.Playing || f.jam.waitingToPlay) {
 			op = "pause"
+			f.jam.waitingToPlay = false
+		} else if !jam.CanPlay() {
+			f.jam.waitingToPlay = true
+			p.notice = "Waiting for both listeners to have the track"
+			return true
 		}
 		p.friendsRequest("jam-"+op, req)
 	case "n", ">":
+		f.jam.waitingToPlay = jam.Playing || f.jam.waitingToPlay
 		p.friendsRequest("jam-next", req)
 	case "[", "]":
 		req.Position = jam.PositionAt(time.Now().Add(f.jam.clockOffset).UnixMilli())
@@ -110,9 +124,15 @@ func (p *player) tickJam(now time.Time) {
 	jam := f.reply.Jam
 	if !p.inJam() {
 		if play.path != "" && p.current() != nil && p.current().path == play.path {
-			pauseAudio()
+			if play.received[play.track] == play.path {
+				stopAudio()
+				p.active = nil
+			} else {
+				pauseAudio()
+			}
 			p.expected = false
 		}
+		play.clearAudio()
 		*play = jamPlayback{clockOffset: play.clockOffset, synced: play.synced}
 		return
 	}
@@ -143,45 +163,57 @@ func (p *player) tickJam(now time.Time) {
 		play.checked = now.Add(10 * time.Second)
 	}
 	ready := make([]string, 0, len(jam.Queue))
-	if p.engine != nil {
-		for _, entry := range jam.Queue {
-			path, checked := play.paths[entry.Song.Hash]
-			if !checked {
-				reply, err := p.engine.request(map[string]any{"op": "locate", "hash": entry.Song.Hash})
-				if err == nil {
-					for _, candidate := range reply.Paths {
-						if a, _ := p.findTrack(candidate); a != nil {
-							path = candidate
-							break
-						}
+	for _, entry := range jam.Queue {
+		path, checked := play.paths[entry.Song.Hash]
+		if !checked && p.engine != nil {
+			reply, err := p.engine.request(map[string]any{"op": "locate", "hash": entry.Song.Hash})
+			if err == nil {
+				for _, candidate := range reply.Paths {
+					if a, _ := p.findTrack(candidate); a != nil {
+						path = candidate
+						break
 					}
 				}
-				play.paths[entry.Song.Hash] = path
 			}
-			if path != "" {
-				ready = append(ready, entry.ID)
-			}
+			play.paths[entry.Song.Hash] = path
+		}
+		if path != "" || play.received[entry.ID] != "" {
+			ready = append(ready, entry.ID)
 		}
 	}
+	p.tickJamAudio(now, jam, f.reply.Me.ID)
 	if !slices.Equal(jam.Ready[f.reply.Me.ID], ready) && !f.busy() {
 		p.friendsRequest("jam-ready", friendshare.Request{Ready: ready})
 	}
 	if len(jam.Queue) == 0 {
-		if play.path != "" && audioState().playing {
-			pauseAudio()
+		play.waitingToPlay = false
+		if play.path != "" {
+			if play.received[play.track] == play.path {
+				stopAudio()
+				p.active = nil
+			} else if audioState().playing {
+				pauseAudio()
+			}
 		}
 		p.expected = false
 		play.path, play.track = "", ""
 		return
 	}
 	entry := jam.Queue[0]
+	if jam.Playing && !f.busy() {
+		play.waitingToPlay = false
+	} else if !jam.Playing && play.waitingToPlay && jam.CanPlay() && !f.busy() {
+		play.waitingToPlay = false
+		p.jamTransport("play")
+	}
 	serverNow := now.Add(play.clockOffset).UnixMilli()
 	position := jam.PositionAt(serverNow)
 	wantPlay := jam.Playing && jam.CanPlay() && serverNow >= jam.StartedAt &&
 		position < entry.Duration && now.Sub(play.synced) < 6*time.Second
 	path := play.paths[entry.Song.Hash]
 	if path == "" {
-		wantPlay = false
+		path = play.received[entry.ID]
+		wantPlay = wantPlay && path != ""
 	}
 	if !wantPlay {
 		if p.active != nil && audioState().playing {
@@ -197,6 +229,7 @@ func (p *player) tickJam(now time.Time) {
 		}
 		if jam.Playing && position >= entry.Duration && now.Sub(play.synced) < 6*time.Second &&
 			jam.Host.ID == f.reply.Me.ID && !f.busy() {
+			play.waitingToPlay = true
 			p.friendsRequest("jam-next", friendshare.Request{Revision: jam.Revision})
 		}
 		return
@@ -204,12 +237,25 @@ func (p *player) tickJam(now time.Time) {
 	at := float64(position) / 1000
 	if play.track != entry.ID || p.current() == nil || p.current().path != path || p.restored {
 		a, i := p.findTrack(path)
+		if path == play.received[entry.ID] {
+			song := entry.Song
+			a = &album{title: song.Album, artist: song.Artist, tracks: []track{
+				{path: path, title: song.Title, artist: song.Artist, album: song.Album, jamAudio: true},
+			}}
+			i = 0
+		}
 		p.leaving("choose")
 		play.starting = true
 		started := p.start(a, i)
 		play.starting = false
 		if !started {
 			play.paths[entry.Song.Hash] = ""
+			if play.received[entry.ID] != "" {
+				_ = os.Remove(path)
+				delete(play.received, entry.ID)
+				play.transferError = "Could not play received audio"
+				play.transferNext = now.Add(10 * time.Second)
+			}
 			return
 		}
 		p.stopRadio()
@@ -255,7 +301,7 @@ func (p *player) jamPanel() ([]string, string) {
 		state = "Playing"
 	}
 	items := []string{fmt.Sprintf("%s · %s + %s", state, jam.Host.Name, jam.Guest.Name)}
-	for _, entry := range jam.Queue {
+	for i, entry := range jam.Queue {
 		mine := slices.Contains(jam.Ready[f.reply.Me.ID], entry.ID)
 		other := slices.Contains(jam.Ready[jam.Host.ID], entry.ID) && slices.Contains(jam.Ready[jam.Guest.ID], entry.ID)
 		label := "missing here"
@@ -263,6 +309,18 @@ func (p *player) jamPanel() ([]string, string) {
 			label = "both ready"
 		} else if mine {
 			label = "waiting for friend"
+		}
+		if i == 0 && jam.Joined && !other {
+			switch {
+			case entry.AddedBy == "":
+				label = "re-add to share audio"
+			case f.jam.transferError != "":
+				label = f.jam.transferError
+			case !mine:
+				label = "waiting for audio"
+			case f.jam.transferResult != nil:
+				label = "sending audio"
+			}
 		}
 		items = append(items, entry.Song.Title+" · "+label)
 	}
