@@ -33,6 +33,10 @@ Options for `install.sh` (put them after `sh -s --` when piping):
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/KrishBnsl/elsewhere/main/install.ps1))) -Music D:\Music
 ```
 
+Run `elsewhere update` from your shell to install the latest release of Elsewhere and Melisma together. The updater checks the release bundle's SHA-256 and puts both binaries alongside the running executable. Close any open player before updating. Your music, session, playlists and Melisma data stay in place. Use `elsewhere --version` to check your build.
+
+If your installed version predates the updater, rerun the installer above once a release includes it. On platforms without a prebuilt bundle, rebuild from source to update.
+
 On macOS, Elsewhere plays through the system's own audio. On Linux and Windows, Melisma's `dhunn audio` plays the sound, measures the spectrum and reads tags and covers, so `dhunn` must stay installed alongside it. Linux and Windows don't show the system output volume. Chiptune Radio needs Game Music Emu (`brew install game-music-emu`, or `libgme0` on Linux) and isn't available on Windows.
 
 To build Elsewhere alone from this folder, use Go 1.25 or newer and the macOS Command Line Tools for Xcode:
@@ -58,7 +62,7 @@ Starting a track opens a centered Now Playing popup. It checks for a local `cove
 
 ### Melisma
 
-Elsewhere can hand the choosing to [Melisma](https://github.com/KrishBnsl/Melisma), a recommender that learns your taste from the sound of your music and from how you listen. When `dhunn` is on your PATH (`cargo install --path crates/dhunn-cli` in the Melisma folder), Elsewhere starts it in the background as `dhunn engine`. The top bar shows how it's doing: starting, ready with how many songs it knows, choosing (with its mode and exploration level), stopped, or not installed. Set `MELISMA_ENGINE` to use a different executable, or to `off` to never start it.
+Elsewhere can hand the choosing to [Melisma](https://github.com/KrishBnsl/Melisma), a recommender that learns your taste from the sound of your music and from how you listen. Elsewhere looks for `dhunn` beside its own binary, then on your PATH (`cargo install --path crates/dhunn-cli` in the Melisma folder), and starts it in the background as `dhunn engine`. The top bar shows how it's doing: starting, ready with how many songs it knows, choosing (with its mode and exploration level), stopped, or not installed. Set `MELISMA_ENGINE` to use a different executable, or to `off` to never start it.
 
 Type `/melisma` to let it choose. If a song is playing, it keeps playing and Melisma carries on from it; otherwise its first pick starts now. Now Playing is then headed **MELISMA** with the mode and exploration level, and shows up to two reasons for each pick. When an album or the queue runs out, Melisma carries on from there even if you didn't ask. Choosing an album yourself hands the choosing back to you.
 
@@ -105,6 +109,16 @@ Run `brew install game-music-emu` once to enable **Chiptune Radio**. Elsewhere s
 | q | Add the selected track (or album) to the queue, or remove it if already queued. In Now Playing it acts on the playing track |
 | /q, Enter | Show the queue. Press `q` to remove the selected entry, Enter to play it now |
 | :q, Enter | Quit |
+
+### Playback and library shortcuts
+
+- Elsewhere restores the last local track, position, queue and volume for each library. Press Space to resume.
+- Press **g** or use **/find** to search songs, artists, albums and playlists together. Enter plays the result, Tab puts it next, and Right reveals it in the library.
+- Press **N** to play the selection next or **Q** to append it. In **/queue**, J/K reorder manual entries, q removes one, X clears them and S saves the queue as a playlist.
+- **/repeat** cycles through track, album and off. **/shuffle** shuffles the current collection. Albums use disc and track numbers where tagged.
+- Consecutive tracks can transition gaplessly during sequential playback. On macOS, **/crossfade** opts into a roughly three-second blend.
+- **/gain** cycles through track ReplayGain, album ReplayGain and off. **/output** opens the audio output picker. On macOS this changes the system output.
+- Desktop media controls support play, pause, next and previous when available. On Linux and Windows, the newer player controls and output picker require a matching `dhunn` build.
 
 ### Themes
 

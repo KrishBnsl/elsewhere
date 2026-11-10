@@ -12,6 +12,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -26,21 +27,29 @@ type audioServer struct {
 }
 
 var sound audioServer
+var mediaEnabled bool
 
 type audioReply struct {
-	OK          bool      `json:"ok"`
-	Error       string    `json:"error"`
-	Status      int       `json:"status"`
-	Elapsed     float64   `json:"elapsed"`
-	Duration    float64   `json:"duration"`
-	Playing     bool      `json:"playing"`
-	Bands       []float32 `json:"bands"`
-	Title       string    `json:"title"`
-	Artist      string    `json:"artist"`
-	Album       string    `json:"album"`
-	AlbumArtist string    `json:"album_artist"`
-	Artwork     bool      `json:"artwork"`
-	Data        string    `json:"data"`
+	OK          bool           `json:"ok"`
+	Error       string         `json:"error"`
+	Status      int            `json:"status"`
+	Elapsed     float64        `json:"elapsed"`
+	Duration    float64        `json:"duration"`
+	Playing     bool           `json:"playing"`
+	Bands       []float32      `json:"bands"`
+	Title       string         `json:"title"`
+	Artist      string         `json:"artist"`
+	Album       string         `json:"album"`
+	AlbumArtist string         `json:"album_artist"`
+	Artwork     bool           `json:"artwork"`
+	Data        string         `json:"data"`
+	Disc        string         `json:"disc"`
+	Number      string         `json:"number"`
+	TrackGain   string         `json:"track_gain"`
+	AlbumGain   string         `json:"album_gain"`
+	Action      int            `json:"action"`
+	Adopted     bool           `json:"adopted"`
+	Devices     []outputDevice `json:"devices"`
 }
 
 func (s *audioServer) start() {
@@ -103,8 +112,9 @@ func readNativeMetadata(path string) tags {
 	if err != nil {
 		return tags{}
 	}
-	return tags{strings.TrimSpace(r.Title), strings.TrimSpace(r.Artist), strings.TrimSpace(r.Album),
-		strings.TrimSpace(r.AlbumArtist), r.Artwork}
+	return tags{title: strings.TrimSpace(r.Title), artist: strings.TrimSpace(r.Artist), album: strings.TrimSpace(r.Album),
+		albumArtist: strings.TrimSpace(r.AlbumArtist), artwork: r.Artwork, disc: tagNumber(r.Disc), number: tagNumber(r.Number),
+		trackGain: tagGain(r.TrackGain), albumGain: tagGain(r.AlbumGain)}
 }
 
 func readCover(path string, embedded bool) *cover {
@@ -199,4 +209,50 @@ func readSpectrum(at float64) ([bandCount]float32, bool) {
 	}
 	copy(levels[:], r.Bands)
 	return levels, true
+}
+
+func outputDevices() ([]outputDevice, error) {
+	reply, err := sound.call(map[string]any{"op": "devices"})
+	return reply.Devices, err
+}
+func chooseOutput(id string) error {
+	_, err := sound.call(map[string]any{"op": "output", "id": id})
+	return err
+}
+func startMediaControls() {
+	if runtime.GOOS != "darwin" {
+		_, err := sound.call(map[string]any{"op": "media_start"})
+		mediaEnabled = err == nil
+	}
+}
+func stopMediaControls() {
+	if mediaEnabled {
+		sound.call(map[string]any{"op": "media_stop"})
+	}
+}
+func pollMediaControl() int {
+	if !mediaEnabled {
+		return 0
+	}
+	r, _ := sound.call(map[string]any{"op": "media_poll"})
+	return r.Action
+}
+func updateMediaControls(t track, s playback) {
+	if mediaEnabled {
+		sound.call(map[string]any{"op": "media_update", "path": t.path, "title": t.title, "artist": t.artist,
+			"album": t.album, "elapsed": s.elapsed, "duration": s.duration, "playing": s.playing})
+	}
+}
+
+const switchOutputRestarts = true
+const crossfadeSupported = false
+
+func prepareNextAudio(path string, volume int, _ float64) bool {
+	_, err := sound.call(map[string]any{"op": "prepare_next", "path": path, "volume": float64(volume) / 100})
+	return err == nil
+}
+func cancelNextAudio() { sound.call(map[string]any{"op": "cancel_next"}) }
+func adoptNextAudio() bool {
+	r, _ := sound.call(map[string]any{"op": "adopt_next"})
+	return r.Adopted
 }

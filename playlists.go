@@ -67,6 +67,7 @@ type searchPrompt struct {
 }
 
 type playlistDialog struct {
+	tracks                    []string
 	kind                      string
 	name, description, filter string
 	descriptionFocused        bool
@@ -178,7 +179,7 @@ func (p *player) handlePlaylist(key string) {
 				}) {
 					return fmt.Errorf("that playlist name is already used")
 				}
-				*lists = append(*lists, playlist{Name: name, Description: strings.TrimSpace(d.description)})
+				*lists = append(*lists, playlist{Name: name, Description: strings.TrimSpace(d.description), Tracks: d.tracks})
 				return nil
 			}, "Created playlist "+name)
 		default:

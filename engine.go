@@ -67,13 +67,19 @@ type engineStart struct {
 	err    error
 }
 
-// engineCommand finds the engine: $MELISMA_ENGINE, else `dhunn` on the PATH.
+// engineCommand prefers the engine installed beside Elsewhere after checking the override.
 func engineCommand() (string, error) {
 	if path := os.Getenv("MELISMA_ENGINE"); path != "" {
 		if path == "off" {
 			return "", errors.New("turned off")
 		}
 		return path, nil
+	}
+	if current, err := executablePath(); err == nil {
+		// LookPath also supplies the .exe suffix on Windows.
+		if bundled, err := exec.LookPath(filepath.Join(filepath.Dir(current), "dhunn")); err == nil {
+			return bundled, nil
+		}
 	}
 	path, err := exec.LookPath("dhunn")
 	if err != nil {
@@ -374,7 +380,7 @@ func (p *player) startMelisma() {
 		return
 	}
 	p.leaveQueue()
-	if t := p.localSong(); t != nil && !p.finished {
+	if t := p.localSong(); t != nil && !p.finished && !p.restored {
 		p.engine.tell("from", "path", t.path)
 		p.melisma, p.handover = true, true
 		p.popup = true
@@ -457,7 +463,7 @@ func (p *player) pollEngine() {
 		}
 		p.syncLikes()
 		// A song that started before the engine was ready still counts.
-		if t := p.localSong(); t != nil && !p.finished {
+		if t := p.localSong(); t != nil && !p.finished && !p.restored {
 			p.engine.tell("played", "path", t.path)
 			if p.melisma {
 				p.engine.tell("from", "path", t.path)

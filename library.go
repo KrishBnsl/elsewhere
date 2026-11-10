@@ -20,6 +20,8 @@ type track struct {
 	source                                  *album
 	likeID                                  string
 	radioFormat                             string
+	disc, number                            int
+	trackGain, albumGain                    *float64
 }
 
 type album struct {
@@ -107,7 +109,7 @@ func scanLibrary(root string) ([]*album, error) {
 				tracks[i] = track{
 					path: path, title: meta.title, artist: meta.artist, album: meta.album,
 					albumArtist: meta.albumArtist, taggedAlbum: taggedAlbum, hasArtwork: meta.artwork,
-					likeID: likeKey(path),
+					likeID: likeKey(path), disc: meta.disc, number: meta.number, trackGain: meta.trackGain, albumGain: meta.albumGain,
 				}
 			}
 		})
@@ -135,6 +137,18 @@ func scanLibrary(root string) ([]*album, error) {
 		}
 		t.source = group
 		group.tracks = append(group.tracks, t)
+	}
+	for _, a := range albums {
+		sort.SliceStable(a.tracks, func(i, j int) bool {
+			left, right := a.tracks[i], a.tracks[j]
+			if max(1, left.disc) != max(1, right.disc) {
+				return max(1, left.disc) < max(1, right.disc)
+			}
+			if left.number == 0 {
+				return false
+			}
+			return right.number == 0 || left.number < right.number
+		})
 	}
 	sort.SliceStable(albums, func(i, j int) bool { return order.CompareString(albums[i].title, albums[j].title) < 0 })
 	return albums, nil

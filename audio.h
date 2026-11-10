@@ -4,7 +4,8 @@ enum { coverSize = 48 };
 
 typedef struct {
     char *title, *artist, *album, *albumArtist;
-    int artwork;
+    int artwork, disc, number;
+    char *trackGain, *albumGain;
 } Metadata;
 
 typedef struct {
@@ -26,3 +27,13 @@ void audio_volume(float volume);
 void audio_stop(void);
 int audio_output_volume(void);
 int audio_spectrum(double seconds, float *bands);
+char *audio_devices(void);
+int audio_select_device(unsigned int id);
+void audio_media_start(void);
+void audio_media_stop(void);
+int audio_media_poll(void);
+void audio_media_update(const char *title, const char *artist, const char *album,
+                        double elapsed, double duration, int playing);
+int audio_prepare_next(const char *path, float volume, double overlap);
+void audio_cancel_next(void);
+int audio_adopt_next(void);

@@ -11,6 +11,12 @@ type paletteCommand struct{ name, description, alias string }
 
 var slashCommands = []paletteCommand{
 	{"np", "New playlist", ""},
+	{"find", "Find songs, artists, albums and playlists", ""},
+	{"repeat", "Cycle repeat off, track, album", ""},
+	{"shuffle", "Toggle shuffle within the current collection", ""},
+	{"output", "Choose the audio output", ""},
+	{"crossfade", "Toggle crossfade between consecutive songs", ""},
+	{"gain", "Cycle ReplayGain off, track, album", ""},
 	{"ap", "Add the selected or playing song to a playlist", ""},
 	{"radio", "Pick a radio station", ""},
 	{"melisma", "Let Melisma choose what plays next", "engine"},
@@ -150,7 +156,7 @@ func (p *player) runSlashCommand(command string, prompt searchPrompt) bool {
 		}
 	}
 	switch command {
-	case "np", "ap", "radio", "q", "queue", "themes", "theme":
+	case "np", "ap", "radio", "q", "queue", "themes", "theme", "find", "repeat", "shuffle", "gain", "output", "crossfade":
 	case "melisma", "engine", "further", "back", "surprise", "never", "dislike":
 	case "drift", "usual", "new", "taste", "profile", "analyze":
 	default:
@@ -174,6 +180,34 @@ func (p *player) runSlashCommand(command string, prompt searchPrompt) bool {
 		p.openTaste()
 	case "analyze":
 		p.startAnalysis()
+	case "output":
+		p.openOutput()
+	case "find":
+		p.finder = &libraryFinder{}
+	case "repeat":
+		p.cancelTransition()
+		p.repeat = nextMode(p.repeat)
+		p.notice = "Repeat · " + p.repeat
+	case "shuffle":
+		p.cancelTransition()
+		p.shuffle = !p.shuffle
+		p.shuffledAlbum = nil
+		p.notice = fmt.Sprintf("Shuffle · %t", p.shuffle)
+	case "crossfade":
+		if !crossfadeSupported {
+			p.notice = "Crossfade requires native macOS audio"
+			break
+		}
+		p.cancelTransition()
+		p.crossfade = !p.crossfade
+		p.notice = fmt.Sprintf("Crossfade · %t", p.crossfade)
+	case "gain":
+		p.cancelTransition()
+		p.gain = nextMode(p.gain)
+		if t := p.localSong(); t != nil && !p.restored {
+			setVolume(p.trackVolume(*t))
+		}
+		p.notice = "ReplayGain · " + p.gain
 	case "radio":
 		p.radioPicker = &radioPicker{}
 	case "q", "queue":

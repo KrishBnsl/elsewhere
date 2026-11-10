@@ -3,14 +3,18 @@ package main
 import (
 	"encoding/binary"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 type tags struct {
 	title, artist, album, albumArtist string
 	artwork                           bool
+	disc, number                      int
+	trackGain, albumGain              *float64
 }
 
 func readMetadata(path string) tags {
@@ -31,7 +35,61 @@ func readMetadata(path string) tags {
 			*field.dest = field.value
 		}
 	}
+	if flac.disc != 0 {
+		result.disc = flac.disc
+	}
+	if flac.number != 0 {
+		result.number = flac.number
+	}
+	if flac.trackGain != nil {
+		result.trackGain = flac.trackGain
+	}
+	if flac.albumGain != nil {
+		result.albumGain = flac.albumGain
+	}
 	return result
+}
+
+func tagNumber(value string) int {
+	first, _, _ := strings.Cut(value, "/")
+	n, _ := strconv.Atoi(strings.TrimSpace(first))
+	return max(0, n)
+}
+
+func tagGain(value string) *float64 {
+	db, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(strings.ToLower(value), "db")), 64)
+	if err != nil || math.IsNaN(db) || math.IsInf(db, 0) {
+		return nil
+	}
+	return &db
+}
+
+func nextMode(mode string) string {
+	switch mode {
+	case "track":
+		return "album"
+	case "album":
+		return "off"
+	default:
+		return "track"
+	}
+}
+
+func (p *player) trackVolume(t track) int {
+	var gain *float64
+	switch p.gain {
+	case "track":
+		gain = t.trackGain
+	case "album":
+		gain = t.albumGain
+		if gain == nil {
+			gain = t.trackGain
+		}
+	}
+	if gain == nil {
+		return p.volume
+	}
+	return int(math.Round(min(100, float64(p.volume)*math.Pow(10, min(30, *gain)/20))))
 }
 
 func readFLACTags(path string) tags {
@@ -97,6 +155,14 @@ func vorbisTags(block []byte) (result tags) {
 		value = strings.TrimSpace(value)
 		var dest *string
 		switch strings.ToUpper(key) {
+		case "DISCNUMBER":
+			result.disc = tagNumber(value)
+		case "TRACKNUMBER":
+			result.number = tagNumber(value)
+		case "REPLAYGAIN_TRACK_GAIN":
+			result.trackGain = tagGain(value)
+		case "REPLAYGAIN_ALBUM_GAIN":
+			result.albumGain = tagGain(value)
 		case "TITLE":
 			dest = &result.title
 		case "ARTIST":

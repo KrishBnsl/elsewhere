@@ -3,11 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"time"
 )
 
 type player struct {
+	sessionPath, repeat, gain             string
+	restored, shuffle, crossfade          bool
+	shuffled                              []int
+	nextPrepared                          bool
+	shuffledAlbum                         *album
+	finder                                *libraryFinder
 	albums, results                       []*album
 	path, query, notice                   string
 	albumIndex, trackIndex, playingIndex  int
@@ -17,7 +24,7 @@ type player struct {
 	state                                 playback
 	volume, output, phase                 int
 	levels                                [bandCount]float32
-	nextAnalysis, nextOutput              time.Time
+	nextAnalysis, nextOutput, nextMedia   time.Time
 	lyricsMode                            bool
 	lyricsPath                            string
 	lyrics                                []lyricLine
@@ -110,11 +117,18 @@ func (p *player) start(a *album, i int) bool {
 		return false
 	}
 	t := a.tracks[i]
-	if err := startAudio(t.path, p.volume); err != nil {
+	p.cancelTransition()
+	if err := startAudio(t.path, p.trackVolume(t)); err != nil {
 		p.notice = fmt.Sprintf("Cannot play %s: %s", t.title, err)
 		return false
 	}
-	p.active, p.playingIndex = a, i
+	p.nowPlaying(a, i)
+	return true
+}
+
+func (p *player) nowPlaying(a *album, i int) {
+	t := a.tracks[i]
+	p.active, p.playingIndex, p.restored = a, i, false
 	p.expected, p.finished, p.analysisAvailable = true, false, true
 	// Melisma hears about every local song, and explains the ones it chose.
 	p.why, p.handover = nil, false
@@ -127,8 +141,7 @@ func (p *player) start(a *album, i int) bool {
 	}
 	p.notice = ""
 	p.levels = [bandCount]float32{}
-	p.nextAnalysis = time.Time{}
-	return true
+	p.nextAnalysis, p.nextMedia = time.Time{}, time.Time{}
 }
 
 func (p *player) playSelection() {
@@ -145,18 +158,40 @@ func (p *player) playSelection() {
 		p.stopRadio()
 		p.clearLiveStation()
 		p.leaveQueue()
+		p.shuffledAlbum = nil
 		p.popup = true
 	}
 }
 
 func (p *player) tick(now time.Time) {
+	switch pollMediaControl() {
+	case 1:
+		p.handlePlayback(" ")
+	case 2:
+		p.handlePlayback("n")
+	case 3:
+		p.handlePlayback("p")
+	case 4:
+		if !audioState().playing {
+			p.handlePlayback(" ")
+		}
+	case 5:
+		if audioState().playing {
+			p.handlePlayback(" ")
+		}
+	}
 	p.pollEngine()
 	p.tickAnalysis()
 	p.tickRadio()
 	if p.active == nil {
 		return
 	}
+	if p.restored {
+		p.publishMedia(now)
+		return
+	}
 	p.state = audioState()
+	p.prepareTransition()
 	if p.live != nil {
 		p.updateLive(now)
 	}
@@ -167,6 +202,12 @@ func (p *player) tick(now time.Time) {
 		}
 		if p.active.radio && p.radio != nil {
 			p.advanceRadio()
+		} else if p.nextPrepared && adoptNextAudio() {
+			p.nextPrepared = false
+			p.nowPlaying(p.active, p.playingIndex+1)
+			p.state = audioState()
+		} else if p.repeat == "track" && p.live == nil && !p.active.radio && p.start(p.active, p.playingIndex) {
+			p.state = audioState()
 		} else if p.advance() {
 			p.state = audioState()
 		}
@@ -174,6 +215,7 @@ func (p *player) tick(now time.Time) {
 	if p.finished {
 		p.state.elapsed = p.state.duration
 	}
+	p.publishMedia(now)
 	if !p.popup || !p.lyricsMode {
 		p.stopLyricsLookup()
 	}
@@ -204,6 +246,13 @@ func (p *player) tick(now time.Time) {
 			p.levels[i] = max(level, p.levels[i]*0.77)
 		}
 		p.phase = (p.phase + 1) % 100000
+	}
+}
+
+func (p *player) publishMedia(now time.Time) {
+	if t := p.current(); t != nil && !now.Before(p.nextMedia) {
+		updateMediaControls(*t, p.state)
+		p.nextMedia = now.Add(time.Second)
 	}
 }
 
@@ -265,6 +314,10 @@ func (p *player) handle(key string) bool {
 		if key == "\x1b" || key == "q" || key == "\r" {
 			p.tasteView = nil
 		}
+		return true
+	}
+	if p.finder != nil {
+		p.handleFinder(key)
 		return true
 	}
 	if p.queueView != nil {
@@ -331,12 +384,16 @@ func (p *player) handle(key string) bool {
 			key = "]"
 		case "\x1b[D":
 			key = "["
-		case "q", ":", " ", "n", "p", ">", "<", "[", "]", "-", "+", "=", "*", "/":
+		case "g", "N", "Q", "q", ":", " ", "n", "p", ">", "<", "[", "]", "-", "+", "=", "*", "/":
 		default:
 			return true
 		}
 	}
 	switch key {
+	case "g":
+		p.finder = &libraryFinder{}
+	case "N", "Q":
+		p.enqueue(p.queueTargets(), key == "N")
 	case "q":
 		p.toggleQueue()
 	case ":":
@@ -364,12 +421,40 @@ func (p *player) handle(key string) bool {
 		p.move(1)
 	case "\r", "\n":
 		p.playSelection()
+	case " ", "n", ">", "p", "<":
+		p.handlePlayback(key)
+	case "[", "]":
+		p.handleSeek(key)
+	case "-", "+", "=":
+		delta := 5
+		if key == "-" {
+			delta = -5
+		}
+		p.cancelTransition()
+		p.volume = min(100, max(0, p.volume+delta))
+		if t := p.localSong(); t != nil {
+			setVolume(p.trackVolume(*t))
+		} else {
+			setVolume(p.volume)
+		}
+	}
+	return true
+}
+
+func (p *player) handlePlayback(key string) {
+	switch key {
 	case " ":
 		if p.live != nil {
 			p.toggleLivePlayback()
 		} else if p.active == nil {
 			p.playSelection()
+		} else if p.restored {
+			pos := p.state.elapsed
+			if p.start(p.active, p.playingIndex) {
+				seekAudio(max(0, min(pos, audioState().duration-0.01)))
+			}
 		} else if audioState().playing {
+			p.cancelTransition()
 			pauseAudio()
 			p.expected = false
 			p.engineTell("pause")
@@ -403,33 +488,28 @@ func (p *player) handle(key string) bool {
 			p.leaving("choose")
 			p.start(p.active, p.playingIndex-1)
 		}
-	case "[", "]":
-		if p.live != nil {
-			p.notice = "Live broadcast has no seek"
-		} else if p.active != nil {
-			state := audioState()
-			delta := 10.0
-			if key == "[" {
-				delta = -10
-			}
-			if p.finished {
-				state.elapsed = state.duration
-			}
-			to := max(0, min(state.elapsed+delta, state.duration-0.01))
-			seekAudio(to)
-			p.engine.tell("seek", "pos", to)
-			p.finished = false
-			p.nextAnalysis = time.Time{}
-		}
-	case "-", "+", "=":
-		delta := 5
-		if key == "-" {
-			delta = -5
-		}
-		p.volume = min(100, max(0, p.volume+delta))
-		setVolume(p.volume)
 	}
-	return true
+}
+
+func (p *player) handleSeek(key string) {
+	if p.live != nil {
+		p.notice = "Live broadcast has no seek"
+	} else if p.active != nil && !p.restored {
+		state := audioState()
+		delta := 10.0
+		if key == "[" {
+			delta = -10
+		}
+		if p.finished {
+			state.elapsed = state.duration
+		}
+		to := max(0, min(state.elapsed+delta, state.duration-0.01))
+		p.cancelTransition()
+		seekAudio(to)
+		p.engine.tell("seek", "pos", to)
+		p.finished = false
+		p.nextAnalysis = time.Time{}
+	}
 }
 
 func (p *player) move(delta int) {
@@ -438,5 +518,56 @@ func (p *player) move(delta int) {
 	} else {
 		p.albumIndex = max(0, min(len(p.results)-1, p.albumIndex+delta))
 		p.trackIndex = 0
+	}
+}
+
+// nextAlbumIndex consumes a shuffled order without replaying a song in the same cycle.
+func (p *player) nextAlbumIndex(a *album, current int) int {
+	if a == nil || !p.shuffle {
+		return current + 1
+	}
+	if p.shuffledAlbum != a {
+		p.shuffledAlbum = a
+		p.shuffled = rand.Perm(len(a.tracks))
+	}
+	for len(p.shuffled) > 0 {
+		i := p.shuffled[0]
+		p.shuffled = p.shuffled[1:]
+		if i != current {
+			return i
+		}
+	}
+	return len(a.tracks)
+}
+
+func (p *player) cancelTransition() {
+	if p.nextPrepared {
+		cancelNextAudio()
+		p.nextPrepared = false
+	}
+}
+
+func (p *player) prepareTransition() {
+	i := p.playingIndex + 1
+	if !p.expected || p.active.radio || p.live != nil || p.melisma ||
+		p.fromQueue || len(p.queue) > 0 || p.shuffle || p.repeat == "track" || i >= len(p.active.tracks) {
+		p.cancelTransition()
+		return
+	}
+	if !p.state.playing || p.nextPrepared {
+		return
+	}
+	remaining := p.state.duration - p.state.elapsed
+	overlap := 0.0
+	window := 1.0
+	if p.crossfade && crossfadeSupported {
+		overlap, window = 3, 3
+	}
+	if remaining > window || remaining <= 0 {
+		return
+	}
+	next := p.active.tracks[i]
+	if prepareNextAudio(next.path, p.trackVolume(next), overlap) {
+		p.nextPrepared = true
 	}
 }

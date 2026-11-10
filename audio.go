@@ -16,3 +16,9 @@ type cover struct {
 	pixels [coverSize][coverSize][4]byte
 	png    []byte
 }
+
+type outputDevice struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Current bool   `json:"current"`
+}

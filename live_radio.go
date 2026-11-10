@@ -111,7 +111,7 @@ func (p *player) tuneStation(station radioStation) {
 	}
 	a := &album{title: station.name, radio: true, cover: radioStationArtwork()}
 	a.tracks = []track{{title: station.name, artist: station.provider, album: station.description, source: a, radioFormat: "LIVE"}}
-	p.active, p.playingIndex = a, 0
+	p.active, p.playingIndex, p.restored = a, 0, false
 	p.state = playback{}
 	p.expected, p.finished, p.analysisAvailable = false, false, false
 	p.popup, p.lyricsMode = true, false

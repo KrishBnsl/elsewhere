@@ -60,7 +60,7 @@ func (p *player) queueIndex(path string) int {
 
 // toggleQueue adds the selected track (or every track of the selected album) to the queue,
 // or removes them when they are all queued already. In Now Playing it acts on the playing track.
-func (p *player) toggleQueue() {
+func (p *player) queueTargets() []track {
 	var targets []track
 	switch {
 	case p.popup:
@@ -80,6 +80,11 @@ func (p *player) toggleQueue() {
 			usable = append(usable, t)
 		}
 	}
+	return usable
+}
+
+func (p *player) toggleQueue() {
+	usable := p.queueTargets()
 	if len(usable) == 0 {
 		if p.popup && (p.live != nil || p.active != nil && p.active.radio) {
 			p.notice = "Radio can't be queued"
@@ -108,10 +113,39 @@ func (p *player) toggleQueue() {
 			p.queue = append(p.queue, t)
 		}
 	}
+	p.cancelTransition()
 	if len(usable) == 1 {
 		p.notice = fmt.Sprintf("Queued: %s (%d in queue)", usable[0].title, len(p.queue))
 	} else {
 		p.notice = fmt.Sprintf("Queued %d tracks (%d in queue)", missing, len(p.queue))
+	}
+}
+
+func (p *player) enqueue(tracks []track, next bool) {
+	var added []track
+	seen := make(map[string]bool)
+	for _, t := range tracks {
+		if !queueable(t) || seen[t.path] {
+			continue
+		}
+		seen[t.path] = true
+		i := p.queueIndex(t.path)
+		if i >= 0 {
+			if !next {
+				continue
+			}
+			p.removeQueued(i)
+		}
+		added = append(added, t)
+	}
+	if next {
+		p.queue = append(added, p.queue...)
+	} else {
+		p.queue = append(p.queue, added...)
+	}
+	if len(added) > 0 {
+		p.cancelTransition()
+		p.notice = fmt.Sprintf("Queued %d tracks", len(added))
 	}
 }
 
@@ -151,6 +185,9 @@ func (p *player) playQueued(t track) bool {
 	p.stopRadio()
 	p.clearLiveStation()
 	if !p.fromQueue {
+		if p.shuffle && resumeAlbum != nil {
+			resumeIndex = p.nextAlbumIndex(resumeAlbum, resumeIndex-1)
+		}
 		p.resumeAlbum, p.resumeIndex = resumeAlbum, resumeIndex
 	}
 	p.fromQueue = true
@@ -166,21 +203,25 @@ func (p *player) advance() bool {
 			return true
 		}
 	}
+	a, i := p.active, p.playingIndex+1
 	if p.fromQueue {
-		a, i := p.resumeAlbum, p.resumeIndex
+		a, i = p.resumeAlbum, p.resumeIndex
 		p.leaveQueue()
-		if a != nil || !p.melisma {
-			return p.start(a, i)
-		}
+	} else if !p.melisma {
+		i = p.nextAlbumIndex(a, p.playingIndex)
 	}
 	if p.melisma && p.engine != nil {
 		return p.playMelisma()
 	}
-	if p.start(p.active, p.playingIndex+1) {
+	if p.start(a, i) {
 		return true
 	}
+	if p.repeat == "album" && a != nil && !a.radio {
+		p.shuffledAlbum = nil
+		return p.start(a, p.nextAlbumIndex(a, -1))
+	}
 	// The album is over: Melisma carries on from here.
-	if p.engine != nil && p.active != nil && !p.active.radio && p.live == nil {
+	if p.engine != nil && a != nil && !a.radio && p.live == nil {
 		if p.playMelisma() {
 			p.notice = "Album over · Melisma carries on"
 			return true
@@ -202,6 +243,29 @@ func (p *player) handleQueueView(key string) {
 		view.index = max(0, view.index-1)
 	case "\x1b[B", "j":
 		view.index = min(max(0, len(p.queue)+len(view.upcoming)-1), view.index+1)
+	case "J", "K":
+		delta := 1
+		if key == "K" {
+			delta = -1
+		}
+		to := view.index + delta
+		if view.index < len(p.queue) && to >= 0 && to < len(p.queue) {
+			p.queue[view.index], p.queue[to] = p.queue[to], p.queue[view.index]
+			view.index = to
+		}
+	case "X":
+		p.queue = nil
+		view.index = 0
+		p.refreshForecast()
+	case "S":
+		if len(p.queue) > 0 {
+			var ids []string
+			for _, t := range p.queue {
+				ids = append(ids, t.likeID)
+			}
+			p.playlistDialog = &playlistDialog{kind: "np", tracks: ids}
+			p.queueView = nil
+		}
 	case "q":
 		if view.index < len(p.queue) {
 			title := p.queue[view.index].title
@@ -270,10 +334,15 @@ func (p *player) overlayQueue(rows []string, width int) {
 				dialog = append(dialog, row("       ↳ "+s.Why[0], dim))
 			}
 		}
+	} else if a, next := p.albumContinuation(); a != nil {
+		dialog = append(dialog, row(" THEN ALBUM · "+a.title, amber))
+		if next >= 0 && next < len(a.tracks) {
+			dialog = append(dialog, row("   "+a.tracks[next].title, dim))
+		}
 	} else if p.engine != nil && !p.melisma {
 		dialog = append(dialog, row("", dim), row(" /melisma lets Melisma choose after this", dim))
 	}
-	dialog = append(dialog, row(" ↑↓ Move  Q Remove  Enter Play now  Esc Close", dim),
+	dialog = append(dialog, row(" ↑↓ Select  J/K Reorder  q Remove  X Clear  S Save  Enter Play", dim),
 		boxBottom(columns))
 	x, y := (width-columns)/2+1, max(0, (len(rows)-len(dialog))/2)
 	cursor := fmt.Sprintf("\x1b[%dG", x)
@@ -282,4 +351,30 @@ func (p *player) overlayQueue(rows []string, width int) {
 			rows[y+i] += cursor + panel + amber + line + reset
 		}
 	}
+}
+
+func (p *player) albumContinuation() (*album, int) {
+	if p.melisma || p.live != nil {
+		return nil, 0
+	}
+	a, i := p.active, p.playingIndex+1
+	if p.fromQueue {
+		a, i = p.resumeAlbum, p.resumeIndex
+	}
+	if a == nil || a.radio {
+		return nil, 0
+	}
+	if p.shuffle {
+		if p.shuffledAlbum == a && len(p.shuffled) > 0 {
+			return a, p.shuffled[0]
+		}
+		return a, -1
+	}
+	if i >= len(a.tracks) {
+		if p.repeat == "album" {
+			return a, 0
+		}
+		return nil, 0
+	}
+	return a, i
 }

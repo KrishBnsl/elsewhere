@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -49,10 +50,17 @@ func runTerminal(p *player) error {
 	defer p.stopRadio()
 	defer p.clearLiveStation()
 	defer stopAudio()
+	startMediaControls()
+	defer stopMediaControls()
 	defer p.stopLyricsLookup()
 	defer p.stopCoverLookup()
 	// Runs first: tell Melisma where the song was left while it's still playing.
 	defer func() { p.engine.close(audioState().elapsed) }()
+	defer func() {
+		if err := p.saveSession(); err != nil {
+			fmt.Fprintln(os.Stderr, "Save session:", err)
+		}
+	}()
 	if _, err := fmt.Fprint(os.Stdout, "\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J"); err != nil {
 		return err
 	}
@@ -223,16 +231,36 @@ func run(args []string) error {
 		playlistPath: playlistPath, playlistRecords: lists}
 	p.rebuildPlaylists()
 	p.refreshLikedSongs()
+	p.sessionPath = filepath.Join(config, "Elsewhere", "sessions", fmt.Sprintf("%x.json", sha256.Sum256([]byte(path))))
+	p.restoreSession()
 	p.engineReady = startEngine()
 	return runTerminal(p)
 }
 
 func main() {
 	if len(os.Args) == 2 && (os.Args[1] == "--help" || os.Args[1] == "-h") {
-		fmt.Println("Usage: elsewhere [music-folder]")
+		fmt.Println("Usage: elsewhere [music-folder] | elsewhere update | elsewhere --version")
 		return
 	}
-	if err := run(os.Args[1:]); err != nil {
+	var err error
+	switch {
+	case len(os.Args) == 2 && os.Args[1] == "--version":
+		fmt.Println("Elsewhere " + buildVersion)
+		return
+	case len(os.Args) >= 2 && os.Args[1] == "update":
+		switch {
+		case len(os.Args) == 2:
+			err = updateRelease()
+		case len(os.Args) == 3 && (os.Args[2] == "--help" || os.Args[2] == "-h"):
+			fmt.Println("Usage: elsewhere update")
+			return
+		default:
+			err = fmt.Errorf("usage: elsewhere update")
+		}
+	default:
+		err = run(os.Args[1:])
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Elsewhere:", err)
 		os.Exit(1)
 	}

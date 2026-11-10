@@ -11,7 +11,7 @@ on:
     inputs:
       melisma_ref:
         description: Melisma branch, tag or commit to build
-        default: main
+        default: 7ef8a2c16630f2072d5b77be9bbc890c934422df
 
 permissions:
   contents: write
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: KrishBnsl/Melisma
-          ref: ${{ inputs.melisma_ref || 'main' }}
+          ref: ${{ inputs.melisma_ref || '7ef8a2c16630f2072d5b77be9bbc890c934422df' }}
           path: melisma
       - uses: actions/setup-go@v5
         with:
@@ -77,7 +77,10 @@ jobs:
         working-directory: elsewhere
         env:
           CGO_ENABLED: ${{ runner.os == 'Windows' && '0' || '1' }}
-        run: go build -trimpath -ldflags='-s -w' -o "../pkg/elsewhere$EXE" .
+        run: |
+          version=dev
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version="$GITHUB_REF_NAME"; fi
+          go build -trimpath -ldflags="-s -w -X main.buildVersion=$version" -o "../pkg/elsewhere$EXE" .
       - name: Package
         run: |
           mkdir -p pkg out
@@ -96,7 +99,8 @@ jobs:
         env:
           DHUNN_AUDIO_NULL: "1"
         run: |
-          ./pkg/elsewhere$EXE --help
+          ./pkg/elsewhere$EXE --version
+          ./pkg/elsewhere$EXE update --help
           printf '%s\n' '{"op":"state"}' | ./pkg/dhunn$EXE audio
       - name: Try the installer on the package
         if: runner.os != 'Windows'
@@ -142,6 +146,8 @@ jobs:
         run: |
           ls -la out
           notes="Elsewhere and Melisma for macOS (Apple Silicon), Linux (x86_64, arm64) and Windows (x86_64).
+
+          Includes session restore, library search, queue editing, playback controls and \`elsewhere update\`.
 
           macOS and Linux: \`curl -fsSL https://raw.githubusercontent.com/KrishBnsl/elsewhere/main/install.sh | sh\`
           Windows (PowerShell): \`irm https://raw.githubusercontent.com/KrishBnsl/elsewhere/main/install.ps1 | iex\`"

@@ -183,7 +183,9 @@ func (p *player) frame(width, height int) []string {
 		rows[len(rows)-2] = row(" Tab/↑↓ Choose a command  Enter Run  Esc Cancel", selected)
 		p.overlayPalette(rows, width)
 	}
-	if p.tasteView != nil {
+	if p.finder != nil {
+		p.overlayFinder(rows, width)
+	} else if p.tasteView != nil {
 		p.overlayTaste(rows, width)
 	} else if p.themePicker != nil {
 		p.overlayThemePicker(rows, width)
@@ -328,7 +330,7 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 			source.artworkRows[i] = artworkRow(art, i, size)
 		}
 	}
-	nativeCover := p.kittyGraphics && p.playlistDialog == nil && p.radioPicker == nil && p.queueView == nil && p.themePicker == nil && p.coverPrompt == nil && source.cover != nil && len(source.cover.png) > 0
+	nativeCover := p.kittyGraphics && p.finder == nil && p.playlistDialog == nil && p.radioPicker == nil && p.queueView == nil && p.themePicker == nil && p.coverPrompt == nil && source.cover != nil && len(source.cover.png) > 0
 	if nativeCover {
 		p.coverPlacement = kittyPlacement{art: source.cover, row: y + 1, column: x + 2, columns: size * 2, rows: size}
 	}

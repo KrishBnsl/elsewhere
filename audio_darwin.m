@@ -1,6 +1,9 @@
 //go:build darwin && !dhunn_audio
 
 #import <AVFoundation/AVFoundation.h>
+#import <AppKit/AppKit.h>
+#import <MediaPlayer/MediaPlayer.h>
+#include <stdatomic.h>
 #import <Accelerate/Accelerate.h>
 #import <CoreAudio/CoreAudio.h>
 #import <ImageIO/ImageIO.h>
@@ -8,6 +11,9 @@
 
 enum { fftSize = 2048, bandCount = 24, chunkSize = 16384 };
 static AVAudioPlayer *player;
+static AVAudioPlayer *nextPlayer;
+static float currentVolume;
+static BOOL fading;
 static AVPlayer *livePlayer;
 static NSURL *playingURL;
 static AVAudioFile *analysisFile;
@@ -48,6 +54,34 @@ Metadata audio_metadata(const char *path) {
                         break;
                     }
                 }
+            }
+        }
+        for (AVMetadataItem *item in asset.metadata) {
+            NSString *identifier = item.identifier;
+            if ([identifier isEqual:AVMetadataIdentifierID3MetadataTrackNumber])
+                result.number = item.stringValue.intValue;
+            if ([identifier isEqual:AVMetadataIdentifierID3MetadataPartOfASet])
+                result.disc = item.stringValue.intValue;
+            if ([identifier isEqual:AVMetadataIdentifieriTunesMetadataTrackNumber] ||
+                [identifier isEqual:AVMetadataIdentifieriTunesMetadataDiscNumber]) {
+                id value = item.value;
+                if ([value isKindOfClass:NSData.class] && [value length] >= 4) {
+                    const unsigned char *bytes = [value bytes];
+                    int number = bytes[2] * 256 + bytes[3];
+                    if ([identifier isEqual:AVMetadataIdentifieriTunesMetadataTrackNumber]) result.number = number;
+                    else result.disc = number;
+                }
+            }
+            if ([identifier isEqual:AVMetadataIdentifierID3MetadataUserText]) {
+                id value = item.value;
+                if (![value isKindOfClass:NSDictionary.class]) continue;
+                NSDictionary *userText = value;
+                NSString *description = userText[@"description"];
+                NSString *gain = userText[@"value"];
+                if (![description isKindOfClass:NSString.class] || ![gain isKindOfClass:NSString.class]) continue;
+                NSString *key = description.lowercaseString;
+                if (!result.trackGain && [key isEqualToString:@"replaygain_track_gain"]) result.trackGain = strdup(gain.UTF8String);
+                if (!result.albumGain && [key isEqualToString:@"replaygain_album_gain"]) result.albumGain = strdup(gain.UTF8String);
             }
         }
         return result;
@@ -119,6 +153,48 @@ int audio_artwork_bytes(const unsigned char *data, size_t size, unsigned char *r
     }
 }
 
+void audio_cancel_next(void) {
+    [nextPlayer stop];
+    nextPlayer = nil;
+    if (fading) player.volume = currentVolume;
+    fading = NO;
+}
+
+int audio_prepare_next(const char *path, float volume, double overlap) {
+    @autoreleasepool {
+        if (!player.isPlaying || nextPlayer) return 0;
+        AVAudioPlayer *next = [[AVAudioPlayer alloc] initWithContentsOfURL:fileURL(path) error:NULL];
+        if (!next || ![next prepareToPlay]) return 0;
+        double remaining = player.duration - player.currentTime;
+        if (remaining <= 0.025) return 0;
+        if (overlap > 0 && next.duration > remaining) {
+            next.volume = 0;
+            if (![next play]) return 0;
+            [next setVolume:volume fadeDuration:remaining];
+            [player setVolume:0 fadeDuration:remaining];
+            fading = YES;
+        } else {
+            next.volume = volume;
+            if (![next playAtTime:player.deviceCurrentTime + remaining]) return 0;
+        }
+        nextPlayer = next;
+        return 1;
+    }
+}
+
+int audio_adopt_next(void) {
+    if (!nextPlayer || player.isPlaying) return 0;
+    player = nextPlayer;
+    nextPlayer = nil;
+    fading = NO;
+    currentVolume = player.volume;
+    playingURL = player.url;
+    analysisOpened = NO;
+    analysisFile = nil;
+    chunk = nil;
+    return 1;
+}
+
 char *audio_start(const char *path, float volume) {
     @autoreleasepool {
         NSURL *url = fileURL(path);
@@ -129,10 +205,12 @@ char *audio_start(const char *path, float volume) {
             const char *message = error.localizedDescription.UTF8String;
             return strdup(message ?: "Audio device could not start playback");
         }
+        audio_cancel_next();
         [livePlayer pause];
         livePlayer = nil;
         [player stop];
         player = next;
+        currentVolume = volume;
         playingURL = url;
         analysisOpened = NO;
         analysisFile = nil;
@@ -148,6 +226,7 @@ int audio_start_live(const char *address, float volume) {
         AVPlayer *next = [AVPlayer playerWithURL:url];
         if (!next) return 0;
         next.volume = volume;
+        audio_cancel_next();
         [livePlayer pause];
         [player stop];
         player = nil;
@@ -178,10 +257,10 @@ Playback audio_state(void) {
     }
 }
 int audio_resume(void) { return [player play]; }
-void audio_pause(void) { [livePlayer pause]; [player pause]; }
-void audio_seek(double seconds) { if (!livePlayer) player.currentTime = seconds; }
-void audio_volume(float volume) { livePlayer.volume = volume; player.volume = volume; }
-void audio_stop(void) { [livePlayer pause]; livePlayer = nil; [player stop]; player = nil; }
+void audio_pause(void) { audio_cancel_next(); [livePlayer pause]; [player pause]; }
+void audio_seek(double seconds) { audio_cancel_next(); if (!livePlayer) player.currentTime = seconds; }
+void audio_volume(float volume) { audio_cancel_next(); currentVolume = volume; livePlayer.volume = volume; player.volume = volume; }
+void audio_stop(void) { audio_cancel_next(); [livePlayer pause]; livePlayer = nil; [player stop]; player = nil; }
 
 static BOOL property(AudioObjectID device, UInt32 selector, UInt32 scope, UInt32 element, void *value, UInt32 size) {
     AudioObjectPropertyAddress address = {selector, scope, element};
@@ -275,5 +354,100 @@ int audio_spectrum(double seconds, float *bands) {
             bands[band] = fminf(1, fmaxf(0, (20 * log10f(fmaxf(amplitude, 0.000001f)) + 54) / 49));
         }
         return 1;
+    }
+}
+
+char *audio_devices(void) {
+    @autoreleasepool {
+        AudioObjectPropertyAddress address = {kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
+                                               kAudioObjectPropertyElementMain};
+        UInt32 size = 0;
+        if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &address, 0, NULL, &size) != noErr) return NULL;
+        NSMutableData *buffer = [NSMutableData dataWithLength:size];
+        if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, &size, buffer.mutableBytes) != noErr) return NULL;
+        AudioDeviceID current = kAudioObjectUnknown;
+        property(kAudioObjectSystemObject, kAudioHardwarePropertyDefaultOutputDevice,
+                 kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain, &current, sizeof(current));
+        NSMutableArray *result = [NSMutableArray array];
+        const AudioDeviceID *ids = buffer.bytes;
+        for (size_t i = 0; i < size / sizeof(*ids); i++) {
+            AudioDeviceID id = ids[i];
+            AudioObjectPropertyAddress streams = {kAudioDevicePropertyStreams, kAudioDevicePropertyScopeOutput,
+                                                   kAudioObjectPropertyElementMain};
+            UInt32 streamSize = 0;
+            if (AudioObjectGetPropertyDataSize(id, &streams, 0, NULL, &streamSize) != noErr || !streamSize) continue;
+            CFStringRef name = NULL;
+            if (!property(id, kAudioObjectPropertyName, kAudioObjectPropertyScopeGlobal,
+                          kAudioObjectPropertyElementMain, &name, sizeof(name)) || !name) continue;
+            NSString *label = CFBridgingRelease(name);
+            [result addObject:@{@"id": [@(id) stringValue], @"name": label, @"current": @(id == current)}];
+        }
+        NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:NULL];
+        return json ? strdup([[[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] UTF8String]) : NULL;
+    }
+}
+
+int audio_select_device(unsigned int id) {
+    audio_cancel_next();
+    AudioDeviceID device = id;
+    AudioObjectPropertyAddress address = {kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal,
+                                           kAudioObjectPropertyElementMain};
+    return AudioObjectSetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, sizeof(device), &device) == noErr;
+}
+
+static atomic_int mediaAction;
+static NSMutableArray *mediaTargets;
+
+void audio_media_start(void) {
+    @autoreleasepool {
+        NSApplication *app = NSApplication.sharedApplication;
+        [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        [app finishLaunching];
+        MPRemoteCommandCenter *center = MPRemoteCommandCenter.sharedCommandCenter;
+        NSArray<MPRemoteCommand *> *commands = @[center.togglePlayPauseCommand, center.nextTrackCommand,
+                                                 center.previousTrackCommand, center.playCommand, center.pauseCommand];
+        mediaTargets = [NSMutableArray array];
+        for (NSUInteger i = 0; i < commands.count; i++) {
+            int action = (int)i + 1;
+            [mediaTargets addObject:[commands[i] addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+                atomic_store(&mediaAction, action);
+                return MPRemoteCommandHandlerStatusSuccess;
+            }]];
+        }
+    }
+}
+
+void audio_media_stop(void) {
+    @autoreleasepool {
+        MPRemoteCommandCenter *center = MPRemoteCommandCenter.sharedCommandCenter;
+        NSArray<MPRemoteCommand *> *commands = @[center.togglePlayPauseCommand, center.nextTrackCommand,
+                                                 center.previousTrackCommand, center.playCommand, center.pauseCommand];
+        for (NSUInteger i = 0; i < mediaTargets.count; i++) [commands[i] removeTarget:mediaTargets[i]];
+        mediaTargets = nil;
+        MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = nil;
+        MPNowPlayingInfoCenter.defaultCenter.playbackState = MPNowPlayingPlaybackStateStopped;
+    }
+}
+
+int audio_media_poll(void) {
+    @autoreleasepool {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true);
+        return atomic_exchange(&mediaAction, 0);
+    }
+}
+
+void audio_media_update(const char *title, const char *artist, const char *album,
+                        double elapsed, double duration, int playing) {
+    @autoreleasepool {
+        MPNowPlayingInfoCenter *center = MPNowPlayingInfoCenter.defaultCenter;
+        center.nowPlayingInfo = @{
+            MPMediaItemPropertyTitle: [NSString stringWithUTF8String:title] ?: @"",
+            MPMediaItemPropertyArtist: [NSString stringWithUTF8String:artist] ?: @"",
+            MPMediaItemPropertyAlbumTitle: [NSString stringWithUTF8String:album] ?: @"",
+            MPMediaItemPropertyPlaybackDuration: @(duration),
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: @(elapsed),
+            MPNowPlayingInfoPropertyPlaybackRate: @(playing ? 1 : 0)
+        };
+        center.playbackState = playing ? MPNowPlayingPlaybackStatePlaying : MPNowPlayingPlaybackStatePaused;
     }
 }

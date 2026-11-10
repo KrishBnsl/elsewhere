@@ -4,17 +4,23 @@ package main
 
 /*
 #cgo CFLAGS: -fobjc-arc -Wno-deprecated-declarations
-#cgo LDFLAGS: -framework AVFoundation -framework Foundation -framework CoreAudio -framework Accelerate -framework ImageIO -framework CoreGraphics
+#cgo LDFLAGS: -framework AVFoundation -framework Foundation -framework CoreAudio -framework Accelerate -framework ImageIO -framework CoreGraphics -framework MediaPlayer -framework AppKit
 #include <stdlib.h>
 #include "audio.h"
 */
 import "C"
 
 import (
+	"encoding/json"
 	"errors"
+	"runtime"
+	"strconv"
 	"strings"
 	"unsafe"
 )
+
+// AppKit and its event loop must stay on the original OS thread.
+func init() { runtime.LockOSThread() }
 
 func readNativeMetadata(path string) tags {
 	filename := C.CString(path)
@@ -24,7 +30,9 @@ func readNativeMetadata(path string) tags {
 		defer C.free(unsafe.Pointer(value))
 		return strings.TrimSpace(C.GoString(value))
 	}
-	return tags{take(native.title), take(native.artist), take(native.album), take(native.albumArtist), native.artwork != 0}
+	return tags{title: take(native.title), artist: take(native.artist), album: take(native.album),
+		albumArtist: take(native.albumArtist), artwork: native.artwork != 0, disc: int(native.disc), number: int(native.number),
+		trackGain: tagGain(take(native.trackGain)), albumGain: tagGain(take(native.albumGain))}
 }
 
 // audio.h's coverSize must match the one in audio.go.
@@ -108,3 +116,44 @@ func readSpectrum(at float64) ([bandCount]float32, bool) {
 	ok := C.audio_spectrum(C.double(at), (*C.float)(unsafe.Pointer(&levels))) != 0
 	return levels, ok
 }
+
+func outputDevices() ([]outputDevice, error) {
+	raw := C.audio_devices()
+	if raw == nil {
+		return nil, errors.New("Cannot list system outputs")
+	}
+	defer C.free(unsafe.Pointer(raw))
+	var devices []outputDevice
+	err := json.Unmarshal([]byte(C.GoString(raw)), &devices)
+	return devices, err
+}
+
+func chooseOutput(id string) error {
+	n, err := strconv.ParseUint(id, 10, 32)
+	if err != nil || C.audio_select_device(C.uint(n)) == 0 {
+		return errors.New("Cannot switch system output")
+	}
+	return nil
+}
+
+func startMediaControls()   { C.audio_media_start() }
+func stopMediaControls()    { C.audio_media_stop() }
+func pollMediaControl() int { return int(C.audio_media_poll()) }
+func updateMediaControls(t track, s playback) {
+	title, artist, album := C.CString(t.title), C.CString(t.artist), C.CString(t.album)
+	defer C.free(unsafe.Pointer(title))
+	defer C.free(unsafe.Pointer(artist))
+	defer C.free(unsafe.Pointer(album))
+	C.audio_media_update(title, artist, album, C.double(s.elapsed), C.double(s.duration), flag(s.playing))
+}
+
+const switchOutputRestarts = false
+const crossfadeSupported = true
+
+func prepareNextAudio(path string, volume int, overlap float64) bool {
+	name := C.CString(path)
+	defer C.free(unsafe.Pointer(name))
+	return C.audio_prepare_next(name, C.float(volume)/100, C.double(overlap)) != 0
+}
+func cancelNextAudio()     { C.audio_cancel_next() }
+func adoptNextAudio() bool { return C.audio_adopt_next() != 0 }
