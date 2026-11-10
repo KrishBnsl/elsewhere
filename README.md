@@ -4,12 +4,22 @@ An amber-on-black terminal player for music files on your Mac.
 
 ### Install
 
-To install a prebuilt macOS executable, copy it into a directory on your PATH, such as `~/.local/bin`. To build and install from this directory, use Go 1.25 or newer and the macOS Command Line Tools for Xcode.
+One command installs Elsewhere and [Melisma](https://github.com/KrishBnsl/Melisma), the engine that chooses what plays next, and sets Melisma up:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/KrishBnsl/elsewhere/main/install.sh | sh
+```
+
+It puts `elsewhere` and `dhunn` in `~/.local/bin` (adding that to your PATH if needed), asks who's listening, and offers to let Melisma listen to `~/Music` once (about a second a song). On Apple Silicon it downloads ready-made programs that need nothing else; on Intel Macs, or with `sh -s -- --source`, it builds them, which needs Git, [Go](https://go.dev/dl) 1.25 or newer and [Rust](https://rustup.rs). Other options: `--music <folder>`, `--name <name>`, `--bin-dir <folder>`, `--no-setup`, `--no-modify-path`, `--yes`. `--uninstall` removes the two programs and leaves your library, likes and history.
+
+To build Elsewhere alone from this folder, use Go 1.25 or newer and the macOS Command Line Tools for Xcode:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
 go build -trimpath -ldflags='-s -w' -o "$HOME/.local/bin/elsewhere" .
 ```
+
+`scripts/release.sh <tag>` builds the Apple Silicon download (Elsewhere plus Melisma from a checkout next to this one) and publishes it as a GitHub release.
 
 Once installed, run `elsewhere` from any directory, or pass a different library with `elsewhere "/path/to/your/music"`. The built executable uses macOS audio frameworks and runs without Go.
 
