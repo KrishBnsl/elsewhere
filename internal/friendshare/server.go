@@ -1,20 +1,17 @@
 package friendshare
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 )
@@ -39,52 +36,37 @@ type database struct {
 }
 
 type service struct {
-	mu    sync.Mutex
-	file  string
 	setup [32]byte
-	state database
+	store stateStore
 }
 
-func Open(file, setup string) (http.Handler, error) {
+type stateChange func(database) (*database, Reply, int)
+
+type stateStore interface {
+	apply(context.Context, bool, stateChange) (Reply, int, error)
+	ready(context.Context) error
+}
+
+func newService(setup string, store stateStore) (*service, error) {
 	if len(setup) < 20 {
 		return nil, errors.New("setup key must have at least 20 characters")
 	}
-	s := &service{
-		file: file, setup: sha256.Sum256([]byte(setup)),
-		state: database{Accounts: make(map[string]account), Invites: make(map[string]invitation), Jams: make(map[string]Jam)},
-	}
-	data, err := os.ReadFile(file)
-	if err == nil {
-		if err := json.Unmarshal(data, &s.state); err != nil {
-			return nil, err
-		}
-		if s.state.Accounts == nil || s.state.Invites == nil {
-			return nil, errors.New("invalid friends database")
-		}
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
-	return s, nil
+	return &service{setup: sha256.Sum256([]byte(setup)), store: store}, nil
 }
 
-func (s *service) save(db database) error {
-	data, err := json.Marshal(db)
-	if err != nil {
-		return err
+func emptyDatabase() database {
+	return database{Accounts: make(map[string]account), Invites: make(map[string]invitation), Jams: make(map[string]Jam)}
+}
+
+func decodeDatabase(data []byte) (database, error) {
+	var state database
+	if err := json.Unmarshal(data, &state); err != nil {
+		return database{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.file), 0700); err != nil {
-		return err
+	if state.Accounts == nil || state.Invites == nil {
+		return database{}, errors.New("invalid friends database")
 	}
-	f, err := os.CreateTemp(filepath.Dir(s.file), ".friends-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	_, writeErr := f.Write(data)
-	if err := errors.Join(writeErr, f.Close()); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), s.file)
+	return state, nil
 }
 
 func secretKey(secret string) string {
@@ -99,6 +81,21 @@ func validText(s string, limit int) bool {
 func (s *service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.Path == "/healthz" && r.Method == http.MethodGet {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.URL.Path == "/readyz" && r.Method == http.MethodGet {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if err := s.store.ready(ctx); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(Reply{Error: "friends storage unavailable"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	reply, code := s.request(w, r)
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(reply)
@@ -119,26 +116,38 @@ func (s *service) request(w http.ResponseWriter, r *http.Request) (Reply, int) {
 	if dec.Decode(&req) != nil || dec.Decode(new(any)) != io.EOF {
 		return fail(http.StatusBadRequest, "invalid request")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	path := r.URL.Path
+	reply, code, err := s.store.apply(ctx, path != "/v1/home", func(state database) (*database, Reply, int) {
+		return s.change(state, path, token, req)
+	})
+	if err != nil {
+		return fail(http.StatusServiceUnavailable, "friends storage unavailable")
+	}
+	return reply, code
+}
+
+func (s *service) change(state database, path, token string, req Request) (*database, Reply, int) {
+	fail := func(status int, message string) (*database, Reply, int) { return nil, Reply{Error: message}, status }
 	key := secretKey(token)
-	me, known := s.state.Accounts[key]
-	if !known && r.URL.Path != "/v1/connect" && r.URL.Path != "/v1/accept" {
+	me, known := state.Accounts[key]
+	if !known && path != "/v1/connect" && path != "/v1/accept" {
 		return fail(http.StatusUnauthorized, "connect or accept an invite first")
 	}
-	if r.URL.Path == "/v1/home" {
-		return home(s.state, me), http.StatusOK
+	if path == "/v1/home" {
+		return nil, home(state, me), http.StatusOK
 	}
 	// Copy on write so a failed persistence operation leaves the live state intact.
-	db := database{Accounts: make(map[string]account, len(s.state.Accounts)+1), Invites: make(map[string]invitation), Jams: make(map[string]Jam)}
-	for id, a := range s.state.Accounts {
+	db := database{Accounts: make(map[string]account, len(state.Accounts)+1), Invites: make(map[string]invitation), Jams: make(map[string]Jam)}
+	for id, a := range state.Accounts {
 		db.Accounts[id] = a
 	}
 	now := time.Now().UTC()
-	for id, jam := range s.state.Jams {
+	for id, jam := range state.Jams {
 		db.Jams[id] = jam
 	}
-	for id, inv := range s.state.Invites {
+	for id, inv := range state.Invites {
 		if inv.Expires.After(now) {
 			db.Invites[id] = inv
 		}
@@ -152,7 +161,7 @@ func (s *service) request(w http.ResponseWriter, r *http.Request) (Reply, int) {
 		return true
 	}
 	var reply Reply
-	switch r.URL.Path {
+	switch path {
 	case "/v1/connect":
 		setup := sha256.Sum256([]byte(req.Code))
 		if subtle.ConstantTimeCompare(setup[:], s.setup[:]) != 1 {
@@ -220,21 +229,17 @@ func (s *service) request(w http.ResponseWriter, r *http.Request) (Reply, int) {
 		}
 		me.Taste = req.Taste
 	default:
-		if !strings.HasPrefix(r.URL.Path, "/v1/jam-") {
+		if !strings.HasPrefix(path, "/v1/jam-") {
 			return fail(http.StatusNotFound, "unknown friends endpoint")
 		}
-		if err := changeJam(&db, me, strings.TrimPrefix(r.URL.Path, "/v1/jam-"), req, now.UnixMilli()); err != nil {
+		if err := changeJam(&db, me, strings.TrimPrefix(path, "/v1/jam-"), req, now.UnixMilli()); err != nil {
 			return fail(http.StatusConflict, err.Error())
 		}
 	}
 	db.Accounts[key] = me
-	if err := s.save(db); err != nil {
-		return fail(http.StatusInternalServerError, fmt.Sprintf("could not save friends data (%T)", err))
-	}
-	s.state = db
 	result := home(db, me)
 	result.Code = reply.Code
-	return result, http.StatusOK
+	return &db, result, http.StatusOK
 }
 
 func findFriend(db database, me account, publicID string) (account, string) {

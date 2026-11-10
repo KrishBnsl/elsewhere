@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: elsewhere-friends
+    runtime: go
+    plan: free
+    buildCommand: go build -trimpath -o friends-service ./cmd/friends-service
+    startCommand: 'test -n "$DATABASE_URL" && exec ./friends-service'
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ELSEWHERE_FRIENDS_SETUP_KEY
+        generateValue: true

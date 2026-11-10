@@ -137,6 +137,14 @@ This development version supports an invite-only, self-hosted friends service. I
 
 Both players need a Melisma build that supports the recording protocol. Music files, local paths, and play history stay on-device.
 
+#### Host it on a free tier
+
+The repository includes a [Render Blueprint](render.yaml) for a free web service. Create a Neon Free Postgres database, then create a Render Blueprint from this repository and supply Neon's TLS connection string as the `DATABASE_URL` secret. Render generates `ELSEWHERE_FRIENDS_SETUP_KEY` for the first device's `/connect`. Keep that key with the service operator.
+
+The service listens on Render's `PORT`, initializes its Postgres storage, and exposes `/healthz` for Render and `/readyz` for the player. Without `DATABASE_URL`, it uses the local JSON file. A new Postgres database starts with a fresh set of connections.
+
+Start both players with `ELSEWHERE_FRIENDS_URL` set to the Render HTTPS address. When a free instance sleeps, newer Elsewhere builds display **Waking friends service…** and retry readiness for up to 85 seconds. The action is sent once the service is ready.
+
 #### Jam rooms
 
 Open **/jam**, select a connected friend, and press Enter to invite them. They open **/jam** and press Enter to join. Either listener can select a local track and run **/jam add**. The room shows which recordings both devices have analyzed. The host controls play/pause (Space), seek ([ and ]), and skip (N). The service schedules playback and each player corrects drift against the room clock. Use **/jam leave** to end the two-person room.

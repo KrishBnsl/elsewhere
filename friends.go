@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
@@ -81,6 +82,54 @@ func (f *friendsClient) prepare() error {
 	return nil
 }
 
+var friendsHTTP = &http.Client{
+	Timeout:       6 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
+const wakingFriends = "Waking friends service…"
+
+func (f friendsClient) waitReady(ctx context.Context, delay time.Duration) error {
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.base+"/readyz", nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", "application/json")
+		res, err := friendsHTTP.Do(req)
+		if err == nil {
+			status := res.StatusCode
+			contentType := res.Header.Get("Content-Type")
+			var oldServer friendshare.Reply
+			if status == http.StatusMethodNotAllowed && strings.HasPrefix(contentType, "application/json") {
+				_ = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&oldServer)
+			}
+			res.Body.Close()
+			if status == http.StatusNoContent || oldServer.Error == "use POST" {
+				return nil
+			}
+			switch {
+			case status == http.StatusBadGateway || status == http.StatusServiceUnavailable ||
+				status == http.StatusGatewayTimeout || status == http.StatusTooManyRequests:
+			case status == http.StatusOK && strings.HasPrefix(contentType, "text/html"):
+				// The free host can serve a warm-up page before the Go process starts.
+			default:
+				return fmt.Errorf("friends service readiness returned %s", res.Status)
+			}
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return ctx.Err()
+			}
+			return errors.New("friends service did not wake up in time · try again")
+		case <-timer.C:
+		}
+	}
+}
+
 func (f friendsClient) call(op string, request friendshare.Request) (friendshare.Reply, error) {
 	data, err := json.Marshal(request)
 	if err != nil {
@@ -95,13 +144,7 @@ func (f friendsClient) call(op string, request friendshare.Request) (friendshare
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+f.token)
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	res, err := client.Do(req)
+	res, err := friendsHTTP.Do(req)
 	if err != nil {
 		return friendshare.Reply{}, fmt.Errorf("friends service: %w", err)
 	}
@@ -124,6 +167,7 @@ type friendsResult struct {
 	reply    friendshare.Reply
 	err      error
 	midpoint time.Time
+	ready    bool
 }
 
 type friendsPanel struct {
@@ -134,15 +178,17 @@ type friendsPanel struct {
 }
 
 type friendsState struct {
-	client  *friendsClient
-	err     error
-	panel   *friendsPanel
-	result  <-chan friendsResult
-	pending string
-	reply   friendshare.Reply
-	next    time.Time
-	jam     jamPlayback
-	taste   tasteSync
+	client     *friendsClient
+	err        error
+	panel      *friendsPanel
+	result     <-chan friendsResult
+	pending    string
+	lastReady  time.Time
+	cancelWake context.CancelFunc
+	reply      friendshare.Reply
+	next       time.Time
+	jam        jamPlayback
+	taste      tasteSync
 }
 
 // A fresh user action can supersede background work. Its response supplies
@@ -172,13 +218,39 @@ func (p *player) friendsRequest(op string, request friendshare.Request) {
 		p.notice = "Use /accept CODE to join, or /connect NAME to set up the first device"
 		return
 	}
+	if f.cancelWake != nil {
+		f.cancelWake()
+		f.cancelWake = nil
+	}
+	wake := time.Since(f.lastReady) >= 12*time.Minute
+	var wakeCtx context.Context
+	var cancel context.CancelFunc
+	if wake {
+		wakeCtx, cancel = context.WithTimeout(context.Background(), 85*time.Second)
+		f.cancelWake = cancel
+		if op != "poll" || f.panel != nil {
+			p.notice = wakingFriends
+		}
+	}
 	result := make(chan friendsResult, 1)
 	f.result, f.pending = result, op
 	client := *f.client
 	go func() {
+		if wake {
+			defer cancel()
+			if err := client.waitReady(wakeCtx, 2*time.Second); err != nil {
+				result <- friendsResult{op: op, err: err}
+				return
+			}
+			if wakeCtx.Err() != nil {
+				result <- friendsResult{op: op, err: wakeCtx.Err()}
+				return
+			}
+		}
+		// Only the readiness probe retries. Sending a song or creating an invite is a single request.
 		started := time.Now()
 		reply, err := client.call(op, request)
-		result <- friendsResult{op: op, reply: reply, err: err, midpoint: started.Add(time.Since(started) / 2)}
+		result <- friendsResult{op: op, reply: reply, err: err, midpoint: started.Add(time.Since(started) / 2), ready: wake || err == nil}
 	}()
 }
 
@@ -186,7 +258,13 @@ func (p *player) tickFriends(now time.Time) {
 	f := &p.social
 	select {
 	case result := <-f.result:
-		f.result, f.pending = nil, ""
+		f.result, f.pending, f.cancelWake = nil, "", nil
+		if result.ready {
+			f.lastReady = now
+		}
+		if p.notice == wakingFriends {
+			p.notice = ""
+		}
 		if result.err != nil {
 			if result.op != "poll" || f.panel != nil {
 				p.notice = "Friends · " + result.err.Error()
