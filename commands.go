@@ -31,6 +31,14 @@ var slashCommands = []paletteCommand{
 	{"toward", "Melisma: travel toward an artist, album or song (/toward name)", "to"},
 	{"vibe", "Melisma: travel toward a described sound (/vibe rainy night)", ""},
 	{"friend", "Melisma: into a friend's taste (/friend name)", ""},
+	{"friends", "See connected friends and create an invite", ""},
+	{"invite", "Create a one-time friend invite", ""},
+	{"accept", "Accept a friend invite (/accept CODE YOUR NAME)", ""},
+	{"connect", "Set up your device on a friends service (/connect NAME)", ""},
+	{"send", "Send a song to a connected friend", ""},
+	{"inbox", "Open songs shared by friends", ""},
+	{"jam", "Open a jam room or add a song (/jam add)", ""},
+	{"taste-sync", "Share or revoke your sound summary (/taste-sync on|off)", ""},
 	{"further", "Melisma: wander further out", ""},
 	{"back", "Melisma: come back toward home", ""},
 	{"surprise", "Melisma: a surprise next", ""},
@@ -141,6 +149,12 @@ func (p *player) runSlashCommand(command string, prompt searchPrompt) bool {
 		name := strings.ToLower(words[0])
 		argument := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(command), words[0]))
 		switch name {
+		case "connect", "accept", "invite", "friends", "send", "inbox", "jam", "taste-sync":
+			p.query = prompt.previousQuery
+			p.search()
+			p.albumIndex, p.trackIndex = prompt.albumIndex, prompt.trackIndex
+			p.friendsCommand(name, argument, prompt.track)
+			return true
 		case "tape", "trip":
 			p.query = prompt.previousQuery
 			p.search()

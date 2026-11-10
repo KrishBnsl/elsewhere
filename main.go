@@ -233,6 +233,13 @@ func run(args []string) error {
 	p.refreshLikedSongs()
 	p.sessionPath = filepath.Join(config, "Elsewhere", "sessions", fmt.Sprintf("%x.json", sha256.Sum256([]byte(path))))
 	p.restoreSession()
+	p.social.client, p.social.err = newFriendsClient(filepath.Join(config, "Elsewhere"))
+	if p.social.client != nil && p.social.client.token != "" {
+		p.social.next = time.Now()
+		if listener, err := os.ReadFile(p.social.client.credentialPath + ".taste-user"); err == nil {
+			p.social.taste.listener = strings.TrimSpace(string(listener))
+		}
+	}
 	p.engineReady = startEngine()
 	return runTerminal(p)
 }

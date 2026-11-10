@@ -9,6 +9,7 @@ import (
 )
 
 type player struct {
+	social                                friendsState
 	listenHistory                         []listenEntry
 	blind, revealed, tripDetour           bool
 	tripDestination                       string
@@ -117,6 +118,10 @@ func (p *player) search() {
 }
 
 func (p *player) start(a *album, i int) bool {
+	if p.inJam() && !p.social.jam.starting {
+		p.notice = "The jam controls playback · /jam leave to listen solo"
+		return false
+	}
 	if a == nil || i < 0 || i >= len(a.tracks) {
 		return false
 	}
@@ -176,6 +181,7 @@ func (p *player) playSelection() {
 }
 
 func (p *player) tick(now time.Time) {
+	p.tickFriends(now)
 	switch pollMediaControl() {
 	case 1:
 		p.handlePlayback(" ")
@@ -184,17 +190,19 @@ func (p *player) tick(now time.Time) {
 	case 3:
 		p.handlePlayback("p")
 	case 4:
-		if !audioState().playing {
+		if !p.jamTransport("play") && !audioState().playing {
 			p.handlePlayback(" ")
 		}
 	case 5:
-		if audioState().playing {
+		if !p.jamTransport("pause") && audioState().playing {
 			p.handlePlayback(" ")
 		}
 	}
 	p.pollEngine()
 	p.tickAnalysis()
 	p.tickRadio()
+	p.tickJam(now)
+	p.tickTaste(now)
 	if p.active == nil {
 		return
 	}
@@ -207,7 +215,7 @@ func (p *player) tick(now time.Time) {
 	if p.live != nil {
 		p.updateLive(now)
 	}
-	if p.expected && !p.state.playing {
+	if !p.inJam() && p.expected && !p.state.playing {
 		p.expected, p.finished = false, true
 		if !p.active.radio && p.live == nil {
 			p.engineTell("finished")
@@ -332,6 +340,10 @@ func (p *player) handle(key string) bool {
 		if key == "\x1b" || key == "q" || key == "\r" {
 			p.tasteView = nil
 		}
+		return true
+	}
+	if p.social.panel != nil {
+		p.handleFriends(key)
 		return true
 	}
 	if p.finder != nil {
@@ -469,6 +481,9 @@ func (p *player) handle(key string) bool {
 }
 
 func (p *player) handlePlayback(key string) {
+	if p.jamTransport(key) {
+		return
+	}
 	switch key {
 	case " ":
 		if p.live != nil {
@@ -519,6 +534,9 @@ func (p *player) handlePlayback(key string) {
 }
 
 func (p *player) handleSeek(key string) {
+	if p.jamTransport(key) {
+		return
+	}
 	if p.live != nil {
 		p.notice = "Live broadcast has no seek"
 	} else if p.active != nil && !p.restored {
@@ -576,7 +594,7 @@ func (p *player) cancelTransition() {
 
 func (p *player) prepareTransition() {
 	i := p.playingIndex + 1
-	if !p.expected || p.active.radio || p.live != nil || p.melisma ||
+	if p.inJam() || !p.expected || p.active.radio || p.live != nil || p.melisma ||
 		p.fromQueue || len(p.queue) > 0 || p.shuffle || p.repeat == "track" || i >= len(p.active.tracks) {
 		p.cancelTransition()
 		return

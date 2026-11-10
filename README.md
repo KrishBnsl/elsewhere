@@ -127,6 +127,24 @@ Run `brew install game-music-emu` once to enable **Chiptune Radio**. Elsewhere s
 - **/blind** hides the current song’s details, artwork, and lyrics in Now Playing. Press R to reveal the song. The next local track is hidden again until you toggle **/blind** off.
 - **/timecapsule** resurfaces a local track you haven’t heard in at least 30 days or a forgotten like. The player shows the reason. It uses Elsewhere’s saved listening history and can also use matched history imported into Melisma.
 
+### Share songs with friends
+
+This development version supports an invite-only, self-hosted friends service. It sends a song card with the title, artist, album and decoded-audio hash. Each recipient plays their own analyzed copy. Different encodings or masters can have different hashes.
+
+1. Run the service with `ELSEWHERE_FRIENDS_SETUP_KEY` set to a long random secret, for example `go run ./cmd/friends-service -data /path/to/friends.json`. It listens on `127.0.0.1:8787` by default. For a local test, use `ELSEWHERE_FRIENDS_URL=http://127.0.0.1:8787`. For two machines, put it behind an HTTPS reverse proxy and point both players' `ELSEWHERE_FRIENDS_URL` at that URL.
+2. Start Elsewhere with the same setup key in its environment and run **/connect Your Name** once. Use **/invite** and share the displayed code. Your friend launches Elsewhere with the same service URL and runs **/accept CODE Their Name**. The setup key stays with the service operator.
+3. Play or select an analyzed song and use **/send**, then pick a friend. The recipient opens **/inbox** and presses Enter to play a match. **/friends** lists connections, and D disconnects the selected friend.
+
+Both players need a Melisma build that supports the recording protocol. Music files, local paths, and play history stay on-device.
+
+#### Jam rooms
+
+Open **/jam**, select a connected friend, and press Enter to invite them. They open **/jam** and press Enter to join. Either listener can select a local track and run **/jam add**. The room shows which recordings both devices have analyzed. The host controls play/pause (Space), seek ([ and ]), and skip (N). The service schedules playback and each player corrects drift against the room clock. Use **/jam leave** to end the two-person room.
+
+#### Taste sync
+
+Run **/taste-sync on** once to share a sound summary with your connected friends. Melisma uses your selected listener profile and averages features from several tracks before sharing. It skips private sessions and keeps track IDs, file paths and play history local. Elsewhere refreshes the summary in the background and removes it from the service when you run **/taste-sync off**. Received summaries are matched to your own library, even when you own different songs. Melisma can credit a friend in ordinary recommendations, and **/friend NAME** starts a session toward their sound when there is a good local match.
+
 ### Themes
 
 `/themes` offers **Amber** (default), **MAGI**, **Phosphor**, **Synthwave**, **Ice**, **Sakura** and **Mono**. Themes change colors, frame styles, labels and the spectrum animation. **MAGI** is modeled on the NERV MAGI system from Neon Genesis Evangelion: orange on black with slanted frames, hex rain, and a strip of three computers that vote on the current state. MELCHIOR·1 follows playback (承認 playing, 保留 paused, 否決 stopped), BALTHASAR·2 the like on the current track, and CASPER·3 the queue. The choice is saved in `Elsewhere/theme` in your config folder.

@@ -192,7 +192,9 @@ func (p *player) frame(width, height int) []string {
 		rows[len(rows)-2] = row(" Tab/↑↓ Choose a command  Enter Run  Esc Cancel", selected)
 		p.overlayPalette(rows, width)
 	}
-	if p.finder != nil {
+	if p.social.panel != nil {
+		p.overlayFriends(rows, width)
+	} else if p.finder != nil {
 		p.overlayFinder(rows, width)
 	} else if p.tasteView != nil {
 		p.overlayTaste(rows, width)
@@ -325,6 +327,8 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 	heading := activeTheme.box.h + " " + activeTheme.overlayTitle + " "
 	if hidden {
 		heading = activeTheme.box.h + " BLIND LISTENING "
+	} else if p.inJam() && p.social.jam.path == t.path {
+		heading = activeTheme.box.h + " JAM · " + p.social.reply.Jam.Host.Name + " + " + p.social.reply.Jam.Guest.Name + " "
 	} else if p.melisma && p.tripDestination != "" && p.live == nil && t.radioFormat == "" {
 		heading = activeTheme.box.h + " TRIP · " + strings.ToUpper(p.tripDestination) + " "
 	} else if p.live != nil {
@@ -352,7 +356,7 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 			source.artworkRows[i] = artworkRow(art, i, size)
 		}
 	}
-	nativeCover := !hidden && p.kittyGraphics && p.finder == nil && p.playlistDialog == nil && p.radioPicker == nil && p.queueView == nil && p.themePicker == nil && p.coverPrompt == nil && source.cover != nil && len(source.cover.png) > 0
+	nativeCover := !hidden && p.kittyGraphics && p.social.panel == nil && p.finder == nil && p.playlistDialog == nil && p.radioPicker == nil && p.queueView == nil && p.themePicker == nil && p.coverPrompt == nil && source.cover != nil && len(source.cover.png) > 0
 	if nativeCover {
 		p.coverPlacement = kittyPlacement{art: source.cover, row: y + 1, column: x + 2, columns: size * 2, rows: size}
 	}

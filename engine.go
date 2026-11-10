@@ -51,18 +51,21 @@ type enginePick struct {
 }
 
 type engineReply struct {
-	OK      bool         `json:"ok"`
-	Error   string       `json:"error"`
-	Message string       `json:"message"`
-	Known   bool         `json:"known"`
-	User    string       `json:"user"`
-	Tracks  int          `json:"tracks"`
-	Mode    string       `json:"mode"`
-	Explore *float64     `json:"exploration"`
-	Songs   []enginePick `json:"songs"`
-	Paths   []string     `json:"paths"`
-	Lines   []string     `json:"lines"`
-	Added   int          `json:"added"`
+	DurationMS int64           `json:"duration_ms"`
+	Taste      json.RawMessage `json:"taste"`
+	Hash       string          `json:"hash"`
+	OK         bool            `json:"ok"`
+	Error      string          `json:"error"`
+	Message    string          `json:"message"`
+	Known      bool            `json:"known"`
+	User       string          `json:"user"`
+	Tracks     int             `json:"tracks"`
+	Mode       string          `json:"mode"`
+	Explore    *float64        `json:"exploration"`
+	Songs      []enginePick    `json:"songs"`
+	Paths      []string        `json:"paths"`
+	Lines      []string        `json:"lines"`
+	Added      int             `json:"added"`
 }
 
 type engineStart struct {
@@ -387,6 +390,10 @@ func (p *player) playMelisma() bool {
 // startMelisma hands the choosing to Melisma. A song that's playing keeps playing, and
 // Melisma carries on from it; otherwise its first pick starts now.
 func (p *player) startMelisma() {
+	if p.inJam() {
+		p.notice = "Leave the jam to change your solo session"
+		return
+	}
 	if p.engine == nil {
 		p.notice = "Melisma isn't running: " + p.engineStatus()
 		return
@@ -407,6 +414,10 @@ func (p *player) startMelisma() {
 
 // steerMelisma sends like/dislike/further/back/surprise about the playing song.
 func (p *player) steerMelisma(op string) {
+	if p.inJam() {
+		p.notice = "Leave the jam to change your solo session"
+		return
+	}
 	t := p.localSong()
 	if p.engine == nil {
 		p.notice = "Melisma isn't running: " + p.engineStatus()
@@ -435,6 +446,10 @@ func (p *player) steerMelisma(op string) {
 
 // setMelismaMode changes where Melisma heads, and lets it choose from here on.
 func (p *player) setMelismaMode(fields map[string]any, what string) bool {
+	if p.inJam() {
+		p.notice = "Leave the jam to change your solo session"
+		return false
+	}
 	if p.engine == nil {
 		p.notice = "Melisma isn't running: " + p.engineStatus()
 		return false

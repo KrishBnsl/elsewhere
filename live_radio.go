@@ -67,6 +67,10 @@ func (c *coverCache) set(key string, art *cover) {
 }
 
 func (p *player) tuneStation(station radioStation) {
+	if p.inJam() {
+		p.notice = "Leave the jam before tuning to radio"
+		return
+	}
 	if station == stopRadioStation {
 		p.stopStation()
 		return

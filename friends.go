@@ -1,0 +1,457 @@
+package main
+
+import (
+	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"elsewhere/internal/friendshare"
+)
+
+type friendsClient struct {
+	base, credentialPath, token string
+}
+
+func newFriendsClient(config string) (*friendsClient, error) {
+	raw := os.Getenv("ELSEWHERE_FRIENDS_URL")
+	if raw == "" {
+		return nil, nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return nil, errors.New("ELSEWHERE_FRIENDS_URL must be a service URL")
+	}
+	ip := net.ParseIP(u.Hostname())
+	loopback := u.Hostname() == "localhost" || ip != nil && ip.IsLoopback()
+	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
+		return nil, errors.New("the friends service requires HTTPS outside localhost")
+	}
+	base := strings.TrimRight(u.String(), "/")
+	f := &friendsClient{
+		base: base, credentialPath: filepath.Join(config, fmt.Sprintf("friends-%x.token", sha256.Sum256([]byte(base)))),
+	}
+	data, err := os.ReadFile(f.credentialPath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	f.token = strings.TrimSpace(string(data))
+	return f, nil
+}
+
+func (f *friendsClient) prepare() error {
+	if f.token != "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(f.credentialPath), 0700); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(f.credentialPath+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := lockFile(lock); err != nil {
+		return err
+	}
+	if data, err := os.ReadFile(f.credentialPath); err == nil {
+		if token := strings.TrimSpace(string(data)); token != "" {
+			f.token = token
+			return nil
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	token := rand.Text()
+	if err := writeLocalFile(f.credentialPath, []byte(token)); err != nil {
+		return err
+	}
+	f.token = token
+	return nil
+}
+
+func (f friendsClient) call(op string, request friendshare.Request) (friendshare.Reply, error) {
+	data, err := json.Marshal(request)
+	if err != nil {
+		return friendshare.Reply{}, err
+	}
+	if op == "poll" {
+		op = "home"
+	}
+	req, err := http.NewRequest(http.MethodPost, f.base+"/v1/"+op, bytes.NewReader(data))
+	if err != nil {
+		return friendshare.Reply{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+f.token)
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return friendshare.Reply{}, fmt.Errorf("friends service: %w", err)
+	}
+	defer res.Body.Close()
+	var reply friendshare.Reply
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&reply); err != nil {
+		return reply, fmt.Errorf("friends service returned %s", res.Status)
+	}
+	if res.StatusCode != http.StatusOK {
+		if reply.Error != "" {
+			return reply, errors.New(reply.Error)
+		}
+		return reply, fmt.Errorf("friends service returned %s", res.Status)
+	}
+	return reply, nil
+}
+
+type friendsResult struct {
+	op       string
+	reply    friendshare.Reply
+	err      error
+	midpoint time.Time
+}
+
+type friendsPanel struct {
+	mode   string
+	index  int
+	song   *track
+	invite string
+}
+
+type friendsState struct {
+	client  *friendsClient
+	err     error
+	panel   *friendsPanel
+	result  <-chan friendsResult
+	pending string
+	reply   friendshare.Reply
+	next    time.Time
+	jam     jamPlayback
+	taste   tasteSync
+}
+
+// A fresh user action can supersede background work. Its response supplies
+// the next snapshot, so an older refresh cannot overwrite newer state.
+func (f *friendsState) busy() bool {
+	return f.pending != "" && f.pending != "poll" && f.pending != "home" && f.pending != "taste-update"
+}
+
+func (p *player) friendsRequest(op string, request friendshare.Request) {
+	f := &p.social
+	switch {
+	case f.err != nil:
+		p.notice = f.err.Error()
+		return
+	case f.client == nil:
+		p.notice = "Set ELSEWHERE_FRIENDS_URL to connect to a friends service"
+		return
+	case f.busy():
+		p.notice = "Friends request in progress"
+		return
+	case op == "accept" || op == "connect":
+		if err := f.client.prepare(); err != nil {
+			p.notice = "Save device credential: " + err.Error()
+			return
+		}
+	case f.client.token == "":
+		p.notice = "Use /accept CODE to join, or /connect NAME to set up the first device"
+		return
+	}
+	result := make(chan friendsResult, 1)
+	f.result, f.pending = result, op
+	client := *f.client
+	go func() {
+		started := time.Now()
+		reply, err := client.call(op, request)
+		result <- friendsResult{op: op, reply: reply, err: err, midpoint: started.Add(time.Since(started) / 2)}
+	}()
+}
+
+func (p *player) tickFriends(now time.Time) {
+	f := &p.social
+	select {
+	case result := <-f.result:
+		f.result, f.pending = nil, ""
+		if result.err != nil {
+			if result.op != "poll" || f.panel != nil {
+				p.notice = "Friends · " + result.err.Error()
+			}
+			return
+		}
+		if result.op == "poll" && f.reply.Me.ID != "" && len(result.reply.Cards) > 0 &&
+			!slices.ContainsFunc(f.reply.Cards, func(c friendshare.Card) bool { return c.ID == result.reply.Cards[len(result.reply.Cards)-1].ID }) {
+			p.notice = "New song from a friend · /inbox"
+		}
+		if f.reply.Jam == nil && result.reply.Jam != nil && result.reply.Jam.Guest.ID == result.reply.Me.ID {
+			p.notice = "Jam invite from " + result.reply.Jam.Host.Name + " · /jam"
+		}
+		f.reply = result.reply
+		f.jam.clockOffset = time.UnixMilli(result.reply.Now).Sub(result.midpoint)
+		f.jam.synced = now
+		f.next = now.Add(f.pollInterval())
+		switch result.op {
+		case "invite":
+			f.panel = &friendsPanel{mode: "friends", invite: result.reply.Code}
+			p.notice = "Invite expires in 24 hours"
+		case "accept", "connect":
+			f.panel = &friendsPanel{mode: "friends"}
+			p.notice = "Connected as " + f.reply.Me.Name
+		case "send":
+			f.panel = nil
+			p.notice = "Song sent"
+		case "jam-create":
+			p.notice = "Jam invite sent · /jam add to queue a track"
+		case "jam-join":
+			p.notice = "Joined the jam"
+		case "jam-play":
+			f.panel = nil
+		case "jam-add":
+			p.notice = "Added to the jam queue"
+		case "jam-leave":
+			p.notice = "Left the jam"
+			f.panel = nil
+		case "taste-on":
+			f.taste.next = time.Time{}
+			p.notice = "Taste sharing on"
+		case "taste-off":
+			p.notice = "Taste sharing off"
+		case "disconnect":
+			p.notice = "Friend disconnected"
+		}
+	default:
+		if f.result == nil && !f.next.IsZero() && !now.Before(f.next) {
+			f.next = now.Add(f.pollInterval())
+			p.friendsRequest("poll", friendshare.Request{})
+		}
+	}
+}
+
+func (f *friendsState) pollInterval() time.Duration {
+	if f.reply.Jam != nil {
+		return 700 * time.Millisecond
+	}
+	return 20 * time.Second
+}
+
+func (p *player) friendsCommand(name, arg string, selection *track) {
+	switch name {
+	case "jam":
+		p.jamCommand(arg, selection)
+	case "taste-sync":
+		p.setTasteSharing(arg)
+	case "connect":
+		if arg == "" || os.Getenv("ELSEWHERE_FRIENDS_SETUP_KEY") == "" {
+			p.notice = "Use /connect NAME with ELSEWHERE_FRIENDS_SETUP_KEY set"
+			return
+		}
+		p.friendsRequest(name, friendshare.Request{Name: arg, Code: os.Getenv("ELSEWHERE_FRIENDS_SETUP_KEY")})
+	case "accept":
+		code, name, _ := strings.Cut(arg, " ")
+		name = strings.TrimSpace(name)
+		if name == "" {
+			name = os.Getenv("ELSEWHERE_FRIENDS_NAME")
+		}
+		if code == "" || p.social.reply.Me.ID == "" && strings.TrimSpace(name) == "" {
+			p.notice = "Use /accept CODE YOUR NAME"
+			return
+		}
+		p.friendsRequest("accept", friendshare.Request{Code: code, Name: name})
+	case "invite":
+		p.friendsRequest(name, friendshare.Request{})
+	case "friends", "send", "inbox":
+		var song *track
+		if name == "send" {
+			song = p.localSong()
+			if song == nil {
+				song = selection
+			}
+			if song == nil || !queueable(*song) {
+				p.notice = "Play or select a local song to send"
+				return
+			}
+		}
+		if p.social.client != nil && p.social.client.token != "" {
+			p.social.panel = &friendsPanel{mode: name, song: song}
+		}
+		p.friendsRequest("home", friendshare.Request{})
+	}
+}
+
+func (p *player) handleFriends(key string) {
+	f := &p.social
+	panel := f.panel
+	count := len(f.reply.Friends)
+	if panel.mode == "jam" {
+		if key == "L" && f.reply.Jam != nil {
+			p.jamCommand("leave", nil)
+			return
+		}
+		if f.reply.Jam != nil {
+			items, _ := p.jamPanel()
+			count = len(items)
+		}
+	}
+	if panel.mode == "inbox" {
+		count = len(f.reply.Cards)
+	}
+	panel.index = min(panel.index, max(0, count-1))
+	switch key {
+	case "\x1b":
+		f.panel = nil
+	case "/":
+		f.panel = nil
+		p.beginSearch()
+	case "\x1b[A", "k":
+		panel.index = max(0, panel.index-1)
+	case "\x1b[B", "j":
+		panel.index = min(max(0, count-1), panel.index+1)
+	case "i", "I":
+		if panel.mode == "friends" {
+			p.friendsRequest("invite", friendshare.Request{})
+		}
+	case "D":
+		if panel.mode == "friends" && count > 0 {
+			p.friendsRequest("disconnect", friendshare.Request{Friend: f.reply.Friends[panel.index].ID})
+		}
+	case "\r", "\n":
+		if count == 0 {
+			return
+		}
+		switch panel.mode {
+		case "jam":
+			jam := f.reply.Jam
+			switch {
+			case jam == nil:
+				p.friendsRequest("jam-create", friendshare.Request{Friend: f.reply.Friends[panel.index].ID})
+			case !jam.Joined && jam.Guest.ID == f.reply.Me.ID:
+				p.friendsRequest("jam-join", friendshare.Request{})
+			default:
+				p.jamTransport(" ")
+			}
+		case "send":
+			p.sendFriendSong(*panel.song, f.reply.Friends[panel.index])
+		case "inbox":
+			p.playFriendSong(f.reply.Cards[count-1-panel.index])
+		}
+	}
+}
+
+func (p *player) sendFriendSong(t track, to friendshare.Person) {
+	if p.engine == nil {
+		p.notice = "Start Melisma and analyze the song before sending"
+		return
+	}
+	reply, err := p.engine.request(map[string]any{"op": "recording", "path": t.path})
+	if err != nil || reply.Hash == "" {
+		p.notice = "Could not identify this recording · run /analyze with a current Melisma build"
+		return
+	}
+	p.friendsRequest("send", friendshare.Request{
+		Friend: to.ID,
+		Song:   friendshare.Song{Hash: reply.Hash, Title: t.title, Artist: t.artist, Album: t.album},
+	})
+}
+
+func (p *player) playFriendSong(card friendshare.Card) {
+	if p.engine == nil {
+		p.notice = "Start Melisma and analyze your library to match this song"
+		return
+	}
+	reply, err := p.engine.request(map[string]any{"op": "locate", "hash": card.Song.Hash})
+	if err != nil {
+		p.notice = "Melisma · " + err.Error()
+		return
+	}
+	for _, path := range reply.Paths {
+		if a, i := p.findTrack(path); a != nil {
+			p.leaving("choose")
+			if !p.start(a, i) {
+				continue
+			}
+			p.stopRadio()
+			p.clearLiveStation()
+			p.leaveQueue()
+			p.social.panel = nil
+			p.melisma, p.popup = false, true
+			p.tripDestination, p.tripDetour = "", false
+			p.why = []string{"Sent by " + card.From.Name}
+			return
+		}
+	}
+	p.notice = "No matching recording in this library · analyze a local copy to play it"
+}
+
+func (p *player) overlayFriends(rows []string, width int) {
+	f, view := &p.social, p.social.panel
+	columns := min(width-4, 80)
+	heading, footer := " FRIENDS ", " I Invite · D Disconnect · Esc Close"
+	var items []string
+	switch view.mode {
+	case "jam":
+		heading = " JAM ROOM "
+		items, footer = p.jamPanel()
+	case "inbox":
+		heading, footer = " SONG INBOX ", " ↑↓ Select · Enter Play local match · Esc Close"
+		for i := len(f.reply.Cards) - 1; i >= 0; i-- {
+			card := f.reply.Cards[i]
+			items = append(items, card.From.Name+" → "+card.Song.Title+" / "+card.Song.Artist)
+		}
+	case "send":
+		heading, footer = " SEND SONG ", " ↑↓ Select · Enter Send · Esc Close"
+	}
+	if view.mode != "inbox" && view.mode != "jam" {
+		for _, person := range f.reply.Friends {
+			items = append(items, person.Name)
+		}
+	}
+	lines := []string{boxTop(heading, columns)}
+	add := func(s, style string) {
+		lines = append(lines, boxSide(style+cell(s, columns-2)+panel+amber))
+	}
+	if view.invite != "" {
+		add(" Share this command with your friend", amber)
+		add(" /accept "+view.invite, selected)
+	}
+	if view.song != nil {
+		add(" "+view.song.title+" / "+view.song.artist, amber)
+	}
+	if len(items) == 0 {
+		add(" Nothing here yet", dim)
+	}
+	n := min(8, len(rows)-8)
+	start := max(0, min(view.index-n/2, len(items)-n))
+	for i := start; i < min(len(items), start+n); i++ {
+		if i == view.index {
+			add(" › "+items[i], selected)
+		} else {
+			add("   "+items[i], dim)
+		}
+	}
+	if p.notice != "" {
+		add(" "+p.notice, dim)
+	}
+	add(footer, dim)
+	lines = append(lines, boxBottom(columns))
+	cursor := fmt.Sprintf("\x1b[%dG", (width-columns)/2+1)
+	for i, line := range lines {
+		y := (len(rows)-len(lines))/2 + i
+		if y >= 0 && y < len(rows) {
+			rows[y] += cursor + panel + amber + line + reset
+		}
+	}
+}

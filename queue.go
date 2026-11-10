@@ -196,6 +196,9 @@ func (p *player) playQueued(t track) bool {
 
 // advance moves to the next queued track, then back to the interrupted album, then through the album.
 func (p *player) advance() bool {
+	if p.inJam() {
+		return false
+	}
 	for len(p.queue) > 0 {
 		t := p.queue[0]
 		p.removeQueued(0)
@@ -274,6 +277,10 @@ func (p *player) handleQueueView(key string) {
 			p.refreshForecast()
 		}
 	case "\r", "\n":
+		if p.inJam() {
+			p.notice = "Use /jam add to queue a song for the room"
+			return
+		}
 		if i := view.index - len(p.queue); i >= 0 && i < len(view.upcoming) {
 			// A forecast song: play it now; Melisma carries on from it.
 			pick := view.upcoming[i]
