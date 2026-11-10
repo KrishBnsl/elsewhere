@@ -1,6 +1,9 @@
+//go:build darwin || (linux && cgo)
+
 package main
 
 /*
+#cgo linux LDFLAGS: -ldl
 #include "radio_decoder.h"
 */
 import "C"
@@ -79,3 +82,6 @@ func renderRadioTrack(ctx context.Context, data []byte) ([]byte, error) {
 	binary.LittleEndian.PutUint32(wav[40:], uint32(frame*4))
 	return wav, nil
 }
+
+// chiptuneSupported: this build can load Game Music Emu when it's installed.
+const chiptuneSupported = true

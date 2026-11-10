@@ -1,3 +1,6 @@
+//go:build darwin || linux
+
+// Game Music Emu is loaded when first needed, so Elsewhere runs without it.
 #include "radio_decoder.h"
 #include <dlfcn.h>
 #include <pthread.h>
@@ -24,7 +27,9 @@ static void load_decoder(void) {
         getenv("ELSEWHERE_GME_LIBRARY"),
         "/opt/homebrew/opt/game-music-emu/lib/libgme.dylib",
         "/usr/local/opt/game-music-emu/lib/libgme.dylib",
-        "libgme.dylib"
+        "libgme.dylib",
+        "libgme.so.0",
+        "libgme.so"
     };
     void *library = NULL;
     for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]) && !library; i++) {

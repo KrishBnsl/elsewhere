@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"golang.org/x/sys/unix"
+	"golang.org/x/term"
 )
 
 func init() {
@@ -19,27 +20,22 @@ func init() {
 
 func runTerminal(p *player) error {
 	in, out := int(os.Stdin.Fd()), int(os.Stdout.Fd())
-	original, err := unix.IoctlGetTermios(in, unix.TIOCGETA)
+	if !term.IsTerminal(in) || !term.IsTerminal(out) {
+		return fmt.Errorf("a terminal is required")
+	}
+	restoreConsole, err := prepareConsole()
+	if err != nil {
+		return err
+	}
+	defer restoreConsole()
+	original, err := term.MakeRaw(in)
 	if err != nil {
 		return fmt.Errorf("a terminal is required: %w", err)
 	}
-	if _, err := unix.IoctlGetWinsize(out, unix.TIOCGWINSZ); err != nil {
-		return fmt.Errorf("a terminal is required: %w", err)
-	}
-	raw := *original
-	raw.Iflag &^= unix.IGNBRK | unix.BRKINT | unix.PARMRK | unix.ISTRIP | unix.INLCR | unix.IGNCR | unix.ICRNL | unix.IXON
-	raw.Oflag &^= unix.OPOST
-	raw.Lflag &^= unix.ECHO | unix.ECHONL | unix.ICANON | unix.ISIG | unix.IEXTEN
-	raw.Cflag &^= unix.CSIZE | unix.PARENB
-	raw.Cflag |= unix.CS8
-	raw.Cc[unix.VMIN], raw.Cc[unix.VTIME] = 1, 0
 
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, unix.SIGTERM, unix.SIGHUP)
+	signal.Notify(signals, terminationSignals()...)
 	defer signal.Stop(signals)
-	if err := unix.IoctlSetTermios(in, unix.TIOCSETAF, &raw); err != nil {
-		return err
-	}
 	var shownCover kittyPlacement
 	p.kittyGraphics = supportsKittyGraphics()
 	imageID := newKittyImageID()
@@ -48,7 +44,7 @@ func runTerminal(p *player) error {
 			fmt.Fprint(os.Stdout, deleteKittyImage(imageID))
 		}
 		fmt.Fprint(os.Stdout, "\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l")
-		unix.IoctlSetTermios(in, unix.TIOCSETAF, original)
+		term.Restore(in, original)
 	}()
 	defer p.stopRadio()
 	defer p.clearLiveStation()
@@ -61,10 +57,25 @@ func runTerminal(p *player) error {
 		return err
 	}
 
+	// Keys arrive on a channel, so waiting for one can time out the same way everywhere.
+	input := make(chan []byte, 16)
+	readErr := make(chan error, 1)
+	go func() {
+		var buffer [256]byte
+		for {
+			n, err := os.Stdin.Read(buffer[:])
+			if n > 0 {
+				input <- append([]byte(nil), buffer[:n]...)
+			}
+			if err != nil {
+				readErr <- err
+				return
+			}
+		}
+	}()
+
 	var previous []string
 	lastWidth, lastHeight := 0, 0
-	poll := []unix.PollFd{{Fd: int32(in), Events: unix.POLLIN}}
-	var buffer [256]byte
 	var pending []byte
 	for {
 		select {
@@ -73,11 +84,10 @@ func runTerminal(p *player) error {
 		default:
 		}
 		p.tick(time.Now())
-		size, err := unix.IoctlGetWinsize(out, unix.TIOCGWINSZ)
+		width, height, err := term.GetSize(out)
 		if err != nil {
 			return err
 		}
-		width, height := int(size.Col), int(size.Row)
 		if width == 0 || height == 0 {
 			width, height = 80, 24
 		}
@@ -116,25 +126,21 @@ func runTerminal(p *player) error {
 		} else if p.popup && p.visual && p.state.playing && p.analysisAvailable {
 			timeout = max(1, int((time.Until(p.nextAnalysis)+time.Millisecond-1)/time.Millisecond))
 		}
-		ready, err := unix.Poll(poll, timeout)
-		if err == unix.EINTR {
-			continue
-		}
-		if err != nil {
+		ready := false
+		select {
+		case data := <-input:
+			pending, ready = append(pending, data...), true
+		case err := <-readErr:
+			if err == io.EOF {
+				return nil
+			}
 			return err
-		}
-		if ready > 0 {
-			n, err := unix.Read(in, buffer[:])
-			if err == unix.EINTR {
-				continue
-			}
-			if err != nil || n == 0 {
-				return err
-			}
-			pending = append(pending, buffer[:n]...)
+		case <-signals:
+			return nil
+		case <-time.After(time.Duration(timeout) * time.Millisecond):
 		}
 		for len(pending) > 0 {
-			key, n := nextKey(pending, ready == 0)
+			key, n := nextKey(pending, !ready)
 			if n == 0 {
 				break
 			}

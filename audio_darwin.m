@@ -1,3 +1,5 @@
+//go:build darwin && !dhunn_audio
+
 #import <AVFoundation/AVFoundation.h>
 #import <Accelerate/Accelerate.h>
 #import <CoreAudio/CoreAudio.h>

@@ -51,7 +51,7 @@ func (p *player) toggleRadio() {
 		return
 	}
 	if !radioDecoderAvailable() {
-		p.notice = "Radio requires game-music-emu (brew install game-music-emu)"
+		p.notice = "Radio requires game-music-emu (" + gmeInstallHint + ")"
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())

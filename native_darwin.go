@@ -1,3 +1,5 @@
+//go:build darwin && !dhunn_audio
+
 package main
 
 /*
@@ -14,11 +16,6 @@ import (
 	"unsafe"
 )
 
-type playback struct {
-	elapsed, duration float64
-	playing           bool
-}
-
 func readNativeMetadata(path string) tags {
 	filename := C.CString(path)
 	defer C.free(unsafe.Pointer(filename))
@@ -30,13 +27,8 @@ func readNativeMetadata(path string) tags {
 	return tags{take(native.title), take(native.artist), take(native.album), take(native.albumArtist), native.artwork != 0}
 }
 
-const coverSize = C.coverSize
-const bandCount = 24
-
-type cover struct {
-	pixels [coverSize][coverSize][4]byte
-	png    []byte
-}
+// audio.h's coverSize must match the one in audio.go.
+const _ = uint(coverSize-C.coverSize) + uint(C.coverSize-coverSize)
 
 func readCover(path string, embedded bool) *cover {
 	filename := C.CString(path)

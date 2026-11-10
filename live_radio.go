@@ -79,7 +79,7 @@ func (p *player) tuneStation(station radioStation) {
 			return
 		}
 		if !radioDecoderAvailable() {
-			p.notice = "Chiptune requires game-music-emu (brew install game-music-emu)"
+			p.notice = "Chiptune requires game-music-emu (" + gmeInstallHint + ")"
 			return
 		}
 		if p.live != nil {

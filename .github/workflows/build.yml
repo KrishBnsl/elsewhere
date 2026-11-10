@@ -1,0 +1,129 @@
+# Builds and tests Elsewhere with Melisma (`dhunn`) on macOS, Linux and Windows, and packages
+# each as the download install.sh / install.ps1 fetch. A `v*` tag publishes them as a release.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      melisma_ref:
+        description: Melisma branch, tag or commit to build
+        default: main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, asset: elsewhere-macos-arm64.tar.gz }
+          - { os: ubuntu-22.04, asset: elsewhere-linux-x86_64.tar.gz }
+          - { os: ubuntu-22.04-arm, asset: elsewhere-linux-arm64.tar.gz }
+          - { os: windows-latest, asset: elsewhere-windows-x86_64.zip, exe: .exe }
+    runs-on: ${{ matrix.os }}
+    env:
+      EXE: ${{ matrix.exe }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: elsewhere
+      - uses: actions/checkout@v4
+        with:
+          repository: KrishBnsl/Melisma
+          ref: ${{ inputs.melisma_ref || 'main' }}
+          path: melisma
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: elsewhere/go.mod
+          cache-dependency-path: elsewhere/go.sum
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: melisma
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+
+      - name: Build Melisma
+        working-directory: melisma
+        run: cargo build --release --locked -p dhunn-cli
+      - name: Test Melisma's audio player
+        working-directory: melisma
+        env:
+          DHUNN_AUDIO_NULL: "1"
+        run: cargo test --release --locked -p dhunn-cli audio
+
+      - name: Test Elsewhere
+        working-directory: elsewhere
+        env:
+          MELISMA_ENGINE: ${{ github.workspace }}/melisma/target/release/dhunn${{ env.EXE }}
+          DHUNN_AUDIO_NULL: "1"
+          CGO_ENABLED: ${{ runner.os == 'Windows' && '0' || '1' }}
+        run: |
+          go vet ./...
+          go test ./...
+          # On the Mac, also test the Linux/Windows audio path through dhunn.
+          if [ "$RUNNER_OS" = macOS ]; then go test -tags dhunn_audio ./...; fi
+      - name: Build Elsewhere
+        working-directory: elsewhere
+        env:
+          CGO_ENABLED: ${{ runner.os == 'Windows' && '0' || '1' }}
+        run: go build -trimpath -ldflags='-s -w' -o "../pkg/elsewhere$EXE" .
+      - name: Package
+        run: |
+          mkdir -p pkg out
+          cp "melisma/target/release/dhunn$EXE" pkg/
+          if [ "$RUNNER_OS" = Windows ]; then
+            (cd pkg && 7z a -tzip "../out/${{ matrix.asset }}" elsewhere.exe dhunn.exe >/dev/null)
+            (cd out && sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256")
+          else
+            strip pkg/dhunn 2>/dev/null || true
+            if [ "$RUNNER_OS" = macOS ]; then codesign --force --sign - pkg/dhunn pkg/elsewhere; fi
+            tar -czf "out/${{ matrix.asset }}" -C pkg elsewhere dhunn
+            (cd out && shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256")
+          fi
+          ls -la out
+      - name: Check the packaged programs start
+        env:
+          DHUNN_AUDIO_NULL: "1"
+        run: |
+          ./pkg/elsewhere$EXE --help
+          printf '%s\n' '{"op":"state"}' | ./pkg/dhunn$EXE audio
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: out/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la out
+          notes="Elsewhere and Melisma for macOS (Apple Silicon), Linux (x86_64, arm64) and Windows (x86_64).
+
+          macOS and Linux: \`curl -fsSL https://raw.githubusercontent.com/KrishBnsl/elsewhere/main/install.sh | sh\`
+          Windows (PowerShell): \`irm https://raw.githubusercontent.com/KrishBnsl/elsewhere/main/install.ps1 | iex\`"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" out/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" \
+              --title "Elsewhere $GITHUB_REF_NAME" --notes "$notes"
+          fi

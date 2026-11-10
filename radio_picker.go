@@ -13,7 +13,14 @@ type radioPicker struct {
 
 func (p *player) matchingStations() []radioStation {
 	filter := strings.ToLower(strings.TrimSpace(p.radioPicker.filter))
-	options := append([]radioStation(nil), radioStations...)
+	var options []radioStation
+	for _, station := range radioStations {
+		// Chiptune Radio needs Game Music Emu, which this build can't load.
+		if station.stream == "" && !chiptuneSupported {
+			continue
+		}
+		options = append(options, station)
+	}
 	if p.radio != nil || p.live != nil {
 		options = append(options, stopRadioStation)
 	}

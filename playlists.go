@@ -10,8 +10,6 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"golang.org/x/sys/unix"
 )
 
 type playlist struct {
@@ -44,7 +42,7 @@ func editPlaylists(path string, edit func(*[]playlist) error) ([]playlist, error
 		return nil, err
 	}
 	defer lock.Close()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if err := lockFile(lock); err != nil {
 		return nil, fmt.Errorf("playlist store busy: %w", err)
 	}
 	lists, err := readPlaylists(path)
