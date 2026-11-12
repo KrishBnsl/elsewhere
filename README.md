@@ -157,4 +157,28 @@ Run **/taste-sync on** once to share a sound summary with your connected friends
 
 `/themes` offers **Amber** (default), **MAGI**, **Phosphor**, **Synthwave**, **Ice**, **Sakura** and **Mono**. Themes change colors, frame styles, labels and the spectrum animation. **MAGI** is modeled on the NERV MAGI system from Neon Genesis Evangelion: orange on black with slanted frames, hex rain, and a strip of three computers that vote on the current state. MELCHIOR·1 follows playback (承認 playing, 保留 paused, 否決 stopped), BALTHASAR·2 the like on the current track, and CASPER·3 the queue. The choice is saved in `Elsewhere/theme` in your config folder.
 
+### Project layout
+
+```
+cmd/elsewhere/         the player's entry point (go build ./cmd/elsewhere)
+cmd/friends-service/   the self-hostable friends service
+internal/app/          the terminal player: library, playlists, queue, display, themes,
+                       commands, session, Melisma engine client, friends and jam clients
+internal/audio/        playback, tags, artwork and media keys (system audio on macOS,
+                       Melisma's `dhunn audio` elsewhere)
+internal/radio/        LISTEN.moe, R/a/dio and Rainwave feeds, the chiptune catalog and decoder
+internal/covers/       online album-art lookup (MusicBrainz, Cover Art Archive)
+internal/lyrics/       .lrc files and LRCLIB
+internal/kitty/        Kitty graphics protocol for native cover images
+internal/melisma/      finds the Melisma engine and its log files
+internal/update/       `elsewhere update`, the self-updater
+internal/friendshare/  the friends service's API, storage and server
+internal/console/      Windows console setup and shutdown signals
+internal/fsutil/       atomic file writes and file locks
+internal/version/      the build version (set with -ldflags -X)
+scripts/               release tooling   tests/   the terminal smoke test
+```
+
+Packages under `internal/` don't depend on `internal/app`; the player depends on them. `go test ./...` covers every package, and `python3 tests/smoke.py` drives the built player in a pseudo-terminal.
+
 Run the terminal smoke test with `python3 tests/smoke.py`.
