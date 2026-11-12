@@ -8,3 +8,8 @@
 /.env.*
 !/.env.example
 .neon
+
+# Local AI agent tooling (the Codex config holds an MCP server entry)
+/.agents/
+/.codex/
+/skills-lock.json

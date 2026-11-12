@@ -58,8 +58,8 @@ func (p *player) queueIndex(path string) int {
 	return -1
 }
 
-// toggleQueue adds the selected track (or every track of the selected album) to the queue,
-// or removes them when they are all queued already. In Now Playing it acts on the playing track.
+// queueTargets is what q, N and Q act on: the playing track in Now Playing, otherwise the
+// selected track, or every track of the selected album.
 func (p *player) queueTargets() []track {
 	var targets []track
 	switch {
@@ -83,6 +83,7 @@ func (p *player) queueTargets() []track {
 	return usable
 }
 
+// toggleQueue adds the targets to the queue, or removes them when all are queued already.
 func (p *player) toggleQueue() {
 	usable := p.queueTargets()
 	if len(usable) == 0 {

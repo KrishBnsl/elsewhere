@@ -16,6 +16,11 @@ on:
 permissions:
   contents: write
 
+# Releases build against one exact Melisma commit (the `melisma_ref` default below and the
+# fallback in the checkout step) so a Melisma change can't silently alter a release. To
+# upgrade, run the workflow by hand with a new `melisma_ref` to test it, then update both
+# copies of the hash here. a7cbc7e is the head of Melisma's main as of 2026-11-12.
+
 jobs:
   build:
     strategy:

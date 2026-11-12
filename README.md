@@ -107,15 +107,16 @@ Run `brew install game-music-emu` once to enable **Chiptune Radio**. Elsewhere s
 | ← / → in Now Playing | Seek backward or forward 10 seconds (`[` / `]` also work) |
 | - / + | Adjust app volume |
 | * | Like or unlike the selected or playing track |
-| q | Add the selected track (or album) to the queue, or remove it if already queued. In Now Playing it acts on the playing track |
-| /q, Enter | Show the queue. Press `q` to remove the selected entry, Enter to play it now |
+| q | Add the selected track (or album) to your queue, or remove it if already queued. In Now Playing it acts on the playing track |
+| N / Q | Play the selection next / append it to the end of the queue |
+| /q or /queue, Enter | Open the queue: your queued songs first, then (when Melisma is choosing) what it would play next. ↑↓ select, J/K reorder, `q` remove, X clear, S save as a playlist, Enter play now |
 | :q, Enter | Quit |
 
 ### Playback and library shortcuts
 
 - Elsewhere restores the last local track, position, queue and volume for each library. Press Space to resume.
 - Press **g** or use **/find** to search songs, artists, albums and playlists together. Enter plays the result, Tab puts it next, and Right reveals it in the library.
-- Press **N** to play the selection next or **Q** to append it. In **/queue**, J/K reorder manual entries, q removes one, X clears them and S saves the queue as a playlist.
+- Press **N** to play the selection next or **Q** to append it, and **q** to add or remove it. **/q** (or **/queue**) opens the queue, where J/K reorder your own entries, q removes one, X clears them and S saves the queue as a playlist.
 - **/repeat** cycles through track, album and off. **/shuffle** shuffles the current collection. Albums use disc and track numbers where tagged.
 - Consecutive tracks can transition gaplessly during sequential playback. On macOS, **/crossfade** opts into a roughly three-second blend.
 - **/gain** cycles through track ReplayGain, album ReplayGain and off. **/output** opens the audio output picker. On macOS this changes the system output.
