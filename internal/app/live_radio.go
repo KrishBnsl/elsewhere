@@ -3,13 +3,8 @@ package app
 import (
 	"context"
 	"elsewhere/internal/audio"
-	"elsewhere/internal/covers"
-	"encoding/json"
-	"fmt"
+	"elsewhere/internal/radio"
 	"net/http"
-	"net/url"
-	"strings"
-	"sync"
 	"time"
 )
 
@@ -20,10 +15,10 @@ type radioStation struct {
 
 var radioStations = []radioStation{
 	{name: "Chiptune Radio", description: "Random retro games", provider: "chiptune.app"},
-	{name: "Anime FM", description: "Anime songs and J-pop", provider: "LISTEN.moe", stream: "https://listen.moe/fallback"},
+	{name: "Anime FM", description: "Anime songs and J-pop", provider: radio.ListenProvider, stream: "https://listen.moe/fallback"},
 	{name: "Game OST", description: "Original game soundtracks", provider: "Rainwave", stream: "https://relay.rainwave.cc/game.mp3", backup: "https://allrelays.rainwave.cc/game.mp3", rainwaveID: 1},
 	{name: "Remix Lab", description: "OverClocked ReMix", provider: "Rainwave", stream: "https://relay.rainwave.cc/ocremix.mp3", backup: "https://allrelays.rainwave.cc/ocremix.mp3", rainwaveID: 2},
-	{name: "Vocaloid & Doujin", description: "Vocaloid, anime, doujin and game tracks", provider: radioProvider, stream: "https://stream.r-a-d.io/main.mp3", backup: "https://relay0.r-a-d.io/main.mp3"},
+	{name: "Vocaloid & Doujin", description: "Vocaloid, anime, doujin and game tracks", provider: radio.RadProvider, stream: "https://stream.r-a-d.io/main.mp3", backup: "https://relay0.r-a-d.io/main.mp3"},
 }
 
 var stopRadioStation = radioStation{name: "Stop radio", description: "Return to the library"}
@@ -35,37 +30,9 @@ type liveRadio struct {
 	nextInfo   time.Time
 	ctx        context.Context
 	cancel     context.CancelFunc
-	info       <-chan liveTrackInfo
+	info       <-chan radio.TrackInfo
 	artPath    string
 	retried    bool
-}
-
-type liveTrackInfo struct {
-	title, artist, album, artPath string
-	artPaths                      []string
-	art                           *audio.Cover
-}
-
-// coverCache remembers the most recent artwork a feed fetched, keyed by its source URL.
-type coverCache struct {
-	mu  sync.Mutex
-	key string
-	art *audio.Cover
-}
-
-func (c *coverCache) get(key string) *audio.Cover {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.key == key {
-		return c.art
-	}
-	return nil
-}
-
-func (c *coverCache) set(key string, art *audio.Cover) {
-	c.mu.Lock()
-	c.key, c.art = key, art
-	c.mu.Unlock()
 }
 
 func (p *player) tuneStation(station radioStation) {
@@ -84,8 +51,8 @@ func (p *player) tuneStation(station radioStation) {
 			}
 			return
 		}
-		if !radioDecoderAvailable() {
-			p.notice = "Chiptune requires game-music-emu (" + gmeInstallHint + ")"
+		if !radio.DecoderAvailable() {
+			p.notice = "Chiptune requires game-music-emu (" + radio.InstallHint + ")"
 			return
 		}
 		if p.live != nil {
@@ -110,12 +77,12 @@ func (p *player) tuneStation(station radioStation) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.live = &liveRadio{station: station, connecting: time.Now().Add(10 * time.Second), ctx: ctx, cancel: cancel}
 	switch station.provider {
-	case "LISTEN.moe":
-		p.live.info = listenUpdates(ctx)
-	case radioProvider:
-		p.live.info = radioUpdates(ctx)
+	case radio.ListenProvider:
+		p.live.info = radio.ListenUpdates(ctx)
+	case radio.RadProvider:
+		p.live.info = radio.RadUpdates(ctx)
 	}
-	a := &album{title: station.name, radio: true, cover: radioStationArtwork()}
+	a := &album{title: station.name, radio: true, cover: radio.StationArtwork()}
 	a.tracks = []track{{title: station.name, artist: station.provider, album: station.description, source: a, radioFormat: "LIVE"}}
 	p.active, p.playingIndex, p.restored = a, 0, false
 	p.state = audio.Playback{}
@@ -199,10 +166,10 @@ func (p *player) updateLive(now time.Time) {
 	}
 	if live.station.rainwaveID != 0 && !live.paused && live.info == nil && !now.Before(live.nextInfo) {
 		live.nextInfo = now.Add(15 * time.Second)
-		result := make(chan liveTrackInfo, 1)
+		result := make(chan radio.TrackInfo, 1)
 		live.info = result
 		go func(ctx context.Context, sid int, knownArt string) {
-			result <- rainwaveNowPlaying(ctx, &http.Client{Timeout: 4 * time.Second}, "https://rainwave.cc", sid, knownArt)
+			result <- radio.Rainwave(ctx, &http.Client{Timeout: 4 * time.Second}, "https://rainwave.cc", sid, knownArt)
 		}(live.ctx, live.station.rainwaveID, live.artPath)
 	}
 	select {
@@ -210,26 +177,26 @@ func (p *player) updateLive(now time.Time) {
 		if live.station.rainwaveID != 0 {
 			live.info = nil
 		}
-		if info.title != "" {
+		if info.Title != "" {
 			t := p.current()
-			t.title = info.title
+			t.title = info.Title
 			t.artist = live.station.provider
-			if info.artist != "" {
-				t.artist = info.artist
+			if info.Artist != "" {
+				t.artist = info.Artist
 			}
 			t.album = live.station.name
-			if info.album != "" {
-				t.album = info.album
+			if info.Album != "" {
+				t.album = info.Album
 			}
-			if info.artPath != live.artPath || (info.art != nil && info.art != p.active.cover) {
-				p.active.cover = info.art
+			if info.ArtPath != live.artPath || (info.Art != nil && info.Art != p.active.cover) {
+				p.active.cover = info.Art
 				if p.active.cover == nil {
-					p.active.cover = radioStationArtwork()
+					p.active.cover = radio.StationArtwork()
 				}
 				p.active.artworkSize = 0
 				live.artPath = ""
-				if info.art != nil {
-					live.artPath = info.artPath
+				if info.Art != nil {
+					live.artPath = info.ArtPath
 				}
 			}
 		}
@@ -253,46 +220,4 @@ func (p *player) retryLive(now time.Time, reason string) {
 	}
 	p.pauseLive()
 	p.notice = reason + ". Press Space to retry."
-}
-
-func rainwaveNowPlaying(ctx context.Context, client *http.Client, origin string, sid int, knownArt string) liveTrackInfo {
-	data, err := radioGet(ctx, client, fmt.Sprintf("%s/api4/info?sid=%d", origin, sid), 1<<20)
-	if err != nil {
-		return liveTrackInfo{}
-	}
-	var response struct {
-		Current struct {
-			Songs []struct {
-				Title   string
-				Artists []struct{ Name string }
-				Albums  []struct{ Name, Art string }
-			}
-		} `json:"sched_current"`
-	}
-	if json.Unmarshal(data, &response) != nil || len(response.Current.Songs) == 0 {
-		return liveTrackInfo{}
-	}
-	song := response.Current.Songs[0]
-	info := liveTrackInfo{title: song.Title}
-	var artists []string
-	for _, artist := range song.Artists {
-		artists = append(artists, artist.Name)
-	}
-	info.artist = strings.Join(artists, ", ")
-	if len(song.Albums) == 0 {
-		return info
-	}
-	info.album = song.Albums[0].Name
-	artPath := song.Albums[0].Art
-	asset, err := url.Parse(artPath)
-	if err != nil || !strings.HasPrefix(artPath, "/album_art/") || asset.Host != "" {
-		return info
-	}
-	info.artPath = artPath
-	if artPath != knownArt {
-		if bytes, err := radioGet(ctx, client, origin+artPath+"_320.jpg", covers.MaxBytes); err == nil {
-			info.art = audio.ReadCoverBytes(bytes)
-		}
-	}
-	return info
 }

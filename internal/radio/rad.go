@@ -1,4 +1,4 @@
-package app
+package radio
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	radioProvider  = "R/a/dio"
+	RadProvider    = "R/a/dio"
 	radioAPI       = "https://r-a-d.io/api"
 	radioDJImages  = "https://r-a-d.io/api/dj-image/"
 	radioPollEvery = 10 * time.Second
@@ -20,8 +20,8 @@ const (
 
 // radioUpdates polls R/a/dio's now-playing API. The API only reports an "Artist - Title"
 // string and the DJ, so artwork comes from a MusicBrainz lookup with the DJ's avatar as fallback.
-func radioUpdates(ctx context.Context) <-chan liveTrackInfo {
-	updates := make(chan liveTrackInfo, 1)
+func RadUpdates(ctx context.Context) <-chan TrackInfo {
+	updates := make(chan TrackInfo, 1)
 	go func() {
 		client := &http.Client{Timeout: 12 * time.Second}
 		var avatars coverCache
@@ -29,9 +29,9 @@ func radioUpdates(ctx context.Context) <-chan liveTrackInfo {
 		cancelArt := func() {}
 		defer func() { cancelArt() }()
 		for ctx.Err() == nil {
-			if data, err := radioGet(ctx, client, radioAPI, 1<<20); err == nil {
+			if data, err := Get(ctx, client, radioAPI, 1<<20); err == nil {
 				info, avatar := radioTrack(data)
-				if key := info.artist + "\x00" + info.title; info.title != "" && key != known {
+				if key := info.Artist + "\x00" + info.Title; info.Title != "" && key != known {
 					known = key
 					cancelArt()
 					select {
@@ -41,12 +41,12 @@ func radioUpdates(ctx context.Context) <-chan liveTrackInfo {
 					}
 					lookup, cancel := context.WithCancel(ctx)
 					cancelArt = cancel
-					go func(info liveTrackInfo, avatar string) {
+					go func(info TrackInfo, avatar string) {
 						art, source := radioArtwork(lookup, client, &avatars, info, avatar)
 						if art == nil || lookup.Err() != nil {
 							return
 						}
-						info.artPath, info.art = source, art
+						info.ArtPath, info.Art = source, art
 						select {
 						case updates <- info:
 						case <-lookup.Done():
@@ -66,10 +66,10 @@ func radioUpdates(ctx context.Context) <-chan liveTrackInfo {
 	return updates
 }
 
-func radioArtwork(ctx context.Context, client *http.Client, avatars *coverCache, info liveTrackInfo, avatar string) (*audio.Cover, string) {
-	if info.artist != "" {
-		if art, _, err := covers.Online(ctx, info.title, info.artist); err == nil && art != nil {
-			return art, "cover:" + info.artist + "\x00" + info.title
+func radioArtwork(ctx context.Context, client *http.Client, avatars *coverCache, info TrackInfo, avatar string) (*audio.Cover, string) {
+	if info.Artist != "" {
+		if art, _, err := covers.Online(ctx, info.Title, info.Artist); err == nil && art != nil {
+			return art, "cover:" + info.Artist + "\x00" + info.Title
 		}
 	}
 	if avatar == "" || ctx.Err() != nil {
@@ -79,7 +79,7 @@ func radioArtwork(ctx context.Context, client *http.Client, avatars *coverCache,
 	if art := avatars.get(source); art != nil {
 		return art, source
 	}
-	data, err := radioGet(ctx, client, source, covers.MaxBytes)
+	data, err := Get(ctx, client, source, covers.MaxBytes)
 	if err != nil {
 		return nil, ""
 	}
@@ -91,7 +91,7 @@ func radioArtwork(ctx context.Context, client *http.Client, avatars *coverCache,
 }
 
 // radioTrack parses the "main" block of R/a/dio's API and returns the DJ avatar file name.
-func radioTrack(data []byte) (liveTrackInfo, string) {
+func radioTrack(data []byte) (TrackInfo, string) {
 	var response struct {
 		Main struct {
 			NP string
@@ -102,18 +102,18 @@ func radioTrack(data []byte) (liveTrackInfo, string) {
 		}
 	}
 	if json.Unmarshal(data, &response) != nil {
-		return liveTrackInfo{}, ""
+		return TrackInfo{}, ""
 	}
 	now := strings.TrimSpace(response.Main.NP)
 	if now == "" {
-		return liveTrackInfo{}, ""
+		return TrackInfo{}, ""
 	}
-	info := liveTrackInfo{title: now}
+	info := TrackInfo{Title: now}
 	if artist, title, ok := strings.Cut(now, " - "); ok && strings.TrimSpace(artist) != "" && strings.TrimSpace(title) != "" {
-		info.artist, info.title = strings.TrimSpace(artist), strings.TrimSpace(title)
+		info.Artist, info.Title = strings.TrimSpace(artist), strings.TrimSpace(title)
 	}
 	if dj := strings.TrimSpace(response.Main.DJ.DJName); dj != "" {
-		info.album = "DJ " + dj
+		info.Album = "DJ " + dj
 	}
 	avatar := response.Main.DJ.DJImage
 	if strings.ContainsAny(avatar, "/\\") || avatar == "." || avatar == ".." {

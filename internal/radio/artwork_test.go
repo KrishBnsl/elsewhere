@@ -1,4 +1,4 @@
-package app
+package radio
 
 import (
 	"bytes"
@@ -33,11 +33,11 @@ func TestRadioGameArtwork(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	art := radioGameArtwork(context.Background(), server.Client(), server.URL, song)
+	art := GameArtwork(context.Background(), server.Client(), server.URL, song)
 	if art == nil || art.Pixels[0][0] != [4]byte{255, 0, 0, 255} {
 		t.Fatal("game artwork did not decode")
 	}
-	fallback := radioStationArtwork()
+	fallback := StationArtwork()
 	if fallback == nil || len(fallback.PNG) == 0 || fallback.Pixels[0][0] == fallback.Pixels[24][24] {
 		t.Fatal("station artwork is missing")
 	}

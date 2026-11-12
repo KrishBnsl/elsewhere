@@ -1,4 +1,4 @@
-package app
+package radio
 
 import (
 	"bytes"
@@ -29,8 +29,8 @@ func TestRainwaveArtworkUsesSizedJPEG(t *testing.T) {
 	}))
 	defer server.Close()
 
-	info := rainwaveNowPlaying(context.Background(), server.Client(), server.URL, 1, "")
-	if info.title != "Town Theme" || info.album != "Game" || info.art == nil {
+	info := Rainwave(context.Background(), server.Client(), server.URL, 1, "")
+	if info.Title != "Town Theme" || info.Album != "Game" || info.Art == nil {
 		t.Fatalf("unexpected Rainwave artwork result: %+v", info)
 	}
 }
@@ -39,8 +39,8 @@ func TestAnimeGatewayAlbumArtwork(t *testing.T) {
 	info := listenTrack([]byte(`{"op":1,"t":"TRACK_UPDATE","d":{"song":{
 		"title":"Opening Theme","artists":[{"name":"歌手","nameRomaji":"Singer"}],
 		"albums":[{"name":"Soundtrack","image":"cover art.jpg"}]}}}`))
-	if info.title != "Opening Theme" || info.artist != "Singer" ||
-		info.album != "Soundtrack" || info.artPath != listenCovers+"cover%20art.jpg" {
+	if info.Title != "Opening Theme" || info.Artist != "Singer" ||
+		info.Album != "Soundtrack" || info.ArtPath != listenCovers+"cover%20art.jpg" {
 		t.Fatalf("unexpected Anime FM artwork result: %+v", info)
 	}
 }
@@ -51,13 +51,13 @@ func TestAnimeGatewayFallsBackToSourceAndArtistArtwork(t *testing.T) {
 		"albums":[{"name":"Single","image":null}],
 		"sources":[{"nameRomaji":"Show","image":"show_image.jpg"}]}}}`))
 	want := []string{listenSources + "show_image.jpg", listenArtists + "band.jpg"}
-	if !reflect.DeepEqual(info.artPaths, want) || info.artPath != want[0] {
-		t.Fatalf("artwork candidates = %v (%s), want %v", info.artPaths, info.artPath, want)
+	if !reflect.DeepEqual(info.ArtPaths, want) || info.ArtPath != want[0] {
+		t.Fatalf("artwork candidates = %v (%s), want %v", info.ArtPaths, info.ArtPath, want)
 	}
 	info = listenTrack([]byte(`{"op":1,"t":"TRACK_UPDATE","d":{"song":{"title":"Song",
 		"albums":[{"image":"../escape.jpg"},{"image":"a\\b.jpg"}],"artists":[],"sources":[]}}}`))
-	if len(info.artPaths) != 0 {
-		t.Fatalf("unsafe artwork names were accepted: %v", info.artPaths)
+	if len(info.ArtPaths) != 0 {
+		t.Fatalf("unsafe artwork names were accepted: %v", info.ArtPaths)
 	}
 }
 
@@ -89,14 +89,14 @@ func TestFetchListenArtRetriesAndFallsBack(t *testing.T) {
 
 func TestRadioNowPlayingParsesArtistTitleAndDJ(t *testing.T) {
 	info, avatar := radioTrack([]byte(`{"main":{"np":"Hiroshi Kitadani - We Go! - TV Size","dj":{"djname":"kipukun","djimage":"45-a.png"}}}`))
-	if info.artist != "Hiroshi Kitadani" || info.title != "We Go! - TV Size" || info.album != "DJ kipukun" || avatar != "45-a.png" {
+	if info.Artist != "Hiroshi Kitadani" || info.Title != "We Go! - TV Size" || info.Album != "DJ kipukun" || avatar != "45-a.png" {
 		t.Fatalf("unexpected R/a/dio track: %+v %q", info, avatar)
 	}
 	info, avatar = radioTrack([]byte(`{"main":{"np":"Untitled","dj":{"djimage":"../x.png"}}}`))
-	if info.title != "Untitled" || info.artist != "" || avatar != "" {
+	if info.Title != "Untitled" || info.Artist != "" || avatar != "" {
 		t.Fatalf("unexpected fallback track: %+v %q", info, avatar)
 	}
-	if info, _ = radioTrack([]byte(`{"main":{"np":""}}`)); info.title != "" {
+	if info, _ = radioTrack([]byte(`{"main":{"np":""}}`)); info.Title != "" {
 		t.Fatalf("empty now-playing produced %+v", info)
 	}
 }

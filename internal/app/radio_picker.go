@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/radio"
 	"fmt"
 	"sort"
 	"strings"
@@ -16,7 +17,7 @@ func (p *player) matchingStations() []radioStation {
 	var options []radioStation
 	for _, station := range radioStations {
 		// Chiptune Radio needs Game Music Emu, which this build can't load.
-		if station.stream == "" && !chiptuneSupported {
+		if station.stream == "" && !radio.ChiptuneSupported {
 			continue
 		}
 		options = append(options, station)

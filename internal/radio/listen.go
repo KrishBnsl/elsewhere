@@ -1,4 +1,4 @@
-package app
+package radio
 
 import (
 	"context"
@@ -22,8 +22,13 @@ const (
 	listenArtists = "https://cdn.listen.moe/artists/"
 )
 
-func listenUpdates(ctx context.Context) <-chan liveTrackInfo {
-	updates := make(chan liveTrackInfo, 1)
+// ListenProvider is the provider name of the LISTEN.moe stations.
+const ListenProvider = "LISTEN.moe"
+
+// ListenUpdates follows LISTEN.moe's gateway and reports each song on air, then its artwork
+// once fetched (falling back from album to show to artist images).
+func ListenUpdates(ctx context.Context) <-chan TrackInfo {
+	updates := make(chan TrackInfo, 1)
 	go func() {
 		for ctx.Err() == nil {
 			readListenUpdates(ctx, updates)
@@ -39,7 +44,7 @@ func listenUpdates(ctx context.Context) <-chan liveTrackInfo {
 	return updates
 }
 
-func readListenUpdates(ctx context.Context, updates chan<- liveTrackInfo) {
+func readListenUpdates(ctx context.Context, updates chan<- TrackInfo) {
 	dial, cancel := context.WithTimeout(ctx, 8*time.Second)
 	conn, _, err := websocket.Dial(dial, listenGateway, nil)
 	cancel()
@@ -80,16 +85,16 @@ func readListenUpdates(ctx context.Context, updates chan<- liveTrackInfo) {
 			return
 		}
 		info := listenTrack(data)
-		if info.title == "" {
+		if info.Title == "" {
 			continue
 		}
 		cancelArt()
 		cancelArt = func() {}
 		// Reuse artwork already fetched for this album so consecutive tracks do not flicker.
 		cached := false
-		for _, candidate := range info.artPaths {
+		for _, candidate := range info.ArtPaths {
 			if art := cache.get(candidate); art != nil {
-				info.artPath, info.art, cached = candidate, art, true
+				info.ArtPath, info.Art, cached = candidate, art, true
 				break
 			}
 		}
@@ -98,19 +103,19 @@ func readListenUpdates(ctx context.Context, updates chan<- liveTrackInfo) {
 		case <-session.Done():
 			return
 		}
-		if cached || len(info.artPaths) == 0 {
+		if cached || len(info.ArtPaths) == 0 {
 			continue
 		}
 		// Fetch artwork off the read loop so slow or failing downloads never delay track text.
 		lookup, cancel := context.WithCancel(session)
 		cancelArt = cancel
-		go func(info liveTrackInfo) {
-			found, art := fetchListenArt(lookup, client, info.artPaths)
+		go func(info TrackInfo) {
+			found, art := fetchListenArt(lookup, client, info.ArtPaths)
 			if art == nil || lookup.Err() != nil {
 				return
 			}
 			cache.set(found, art)
-			info.artPath, info.art = found, art
+			info.ArtPath, info.Art = found, art
 			select {
 			case updates <- info:
 			case <-lookup.Done():
@@ -136,7 +141,7 @@ func fetchListenArt(ctx context.Context, client *http.Client, candidates []strin
 				case <-timer.C:
 				}
 			}
-			data, err := radioGet(ctx, client, candidate, covers.MaxBytes)
+			data, err := Get(ctx, client, candidate, covers.MaxBytes)
 			if err != nil {
 				continue
 			}
@@ -149,7 +154,7 @@ func fetchListenArt(ctx context.Context, client *http.Client, candidates []strin
 	return "", nil
 }
 
-func listenTrack(data []byte) liveTrackInfo {
+func listenTrack(data []byte) TrackInfo {
 	type credit struct {
 		Name, NameRomaji string
 		Image            string
@@ -168,7 +173,7 @@ func listenTrack(data []byte) liveTrackInfo {
 	}
 	if json.Unmarshal(data, &event) != nil || event.Op != 1 ||
 		(event.T != "TRACK_UPDATE" && event.T != "TRACK_UPDATE_REQUEST") {
-		return liveTrackInfo{}
+		return TrackInfo{}
 	}
 	name := func(c credit) string {
 		if c.NameRomaji != "" {
@@ -177,17 +182,17 @@ func listenTrack(data []byte) liveTrackInfo {
 		return c.Name
 	}
 	song := event.D.Song
-	info := liveTrackInfo{title: song.Title}
+	info := TrackInfo{Title: song.Title}
 	var artists []string
 	for _, artist := range song.Artists {
 		if n := name(artist); n != "" {
 			artists = append(artists, n)
 		}
 	}
-	info.artist = strings.Join(artists, ", ")
+	info.Artist = strings.Join(artists, ", ")
 	for _, album := range song.Albums {
-		if info.album == "" {
-			info.album = name(album)
+		if info.Album == "" {
+			info.Album = name(album)
 		}
 	}
 	// Many songs have no album image, so fall back to the show or the artist.
@@ -201,13 +206,13 @@ func listenTrack(data []byte) liveTrackInfo {
 				continue
 			}
 			candidate := group.base + url.PathEscape(file)
-			if !slices.Contains(info.artPaths, candidate) {
-				info.artPaths = append(info.artPaths, candidate)
+			if !slices.Contains(info.ArtPaths, candidate) {
+				info.ArtPaths = append(info.ArtPaths, candidate)
 			}
 		}
 	}
-	if len(info.artPaths) > 0 {
-		info.artPath = info.artPaths[0]
+	if len(info.ArtPaths) > 0 {
+		info.ArtPath = info.ArtPaths[0]
 	}
 	return info
 }

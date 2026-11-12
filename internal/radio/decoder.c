@@ -1,7 +1,7 @@
 //go:build darwin || linux
 
 // Game Music Emu is loaded when first needed, so Elsewhere runs without it.
-#include "radio_decoder.h"
+#include "decoder.h"
 #include <dlfcn.h>
 #include <pthread.h>
 #include <stdlib.h>

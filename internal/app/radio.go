@@ -1,40 +1,17 @@
 package app
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"elsewhere/internal/audio"
-	"encoding/json"
+	"elsewhere/internal/radio"
 	"errors"
-	"fmt"
-	"io"
-	"math/rand/v2"
-	"net/http"
-	"net/url"
 	"os"
-	"path"
-	"strings"
-	"time"
 )
-
-const chiptuneOrigin = "https://chiptune.app"
-
-var radioCatalogs = []string{
-	"Nintendo", "Nintendo (NSFE)", "Nintendo Game Boy", "Nintendo SNES",
-	"Sega Game Gear", "Sega Genesis", "Sega Master System", "VGM Rips",
-}
-
-type radioSong struct {
-	title, game, format, catalogPath string
-	wav                              []byte
-	err                              error
-}
 
 type radioSession struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
-	result  <-chan radioSong
+	result  <-chan radio.Song
 	wanted  bool
 	history []*album
 	index   int
@@ -51,8 +28,8 @@ func (p *player) toggleRadio() {
 		p.notice = "Chiptune radio off"
 		return
 	}
-	if !radioDecoderAvailable() {
-		p.notice = "Radio requires game-music-emu (" + gmeInstallHint + ")"
+	if !radio.DecoderAvailable() {
+		p.notice = "Radio requires game-music-emu (" + radio.InstallHint + ")"
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -72,19 +49,19 @@ func (p *player) stopRadio() {
 }
 
 func (p *player) requestRadioSong() {
-	radio := p.radio
-	if radio.result != nil {
+	session := p.radio
+	if session.result != nil {
 		return
 	}
-	result := make(chan radioSong, 1)
-	radio.result = result
+	result := make(chan radio.Song, 1)
+	session.result = result
 	lastGame := ""
-	if len(radio.history) > 0 {
-		lastGame = radio.history[len(radio.history)-1].title
+	if len(session.history) > 0 {
+		lastGame = session.history[len(session.history)-1].title
 	}
 	go func(ctx context.Context, last string) {
-		result <- findRadioSong(ctx, last)
-	}(radio.ctx, lastGame)
+		result <- radio.FindSong(ctx, last)
+	}(session.ctx, lastGame)
 }
 
 func (p *player) advanceRadio() {
@@ -114,16 +91,16 @@ func (p *player) playRadioHistory(index int) {
 }
 
 func (p *player) tickRadio() {
-	radio := p.radio
-	if radio == nil || !radio.wanted {
+	session := p.radio
+	if session == nil || !session.wanted {
 		return
 	}
 	select {
-	case song := <-radio.result:
-		radio.result = nil
-		radio.wanted = false
-		if song.err != nil {
-			p.notice = "Radio unavailable: " + song.err.Error()
+	case song := <-session.result:
+		session.result = nil
+		session.wanted = false
+		if song.Err != nil {
+			p.notice = "Radio unavailable: " + song.Err.Error()
 			return
 		}
 		file, err := os.CreateTemp("", "elsewhere-radio-*.wav")
@@ -131,139 +108,32 @@ func (p *player) tickRadio() {
 			p.notice = "Radio: " + err.Error()
 			return
 		}
-		_, writeErr := file.Write(song.wav)
+		_, writeErr := file.Write(song.WAV)
 		closeErr := file.Close()
 		if err := errors.Join(writeErr, closeErr); err != nil {
 			_ = os.Remove(file.Name())
 			p.notice = "Radio: " + err.Error()
 			return
 		}
-		a := &album{title: song.game, radio: true, cover: radioStationArtwork()}
-		a.tracks = []track{{path: file.Name(), title: song.title, artist: "chiptune.app", album: song.game, source: a, radioFormat: song.format}}
+		a := &album{title: song.Game, radio: true, cover: radio.StationArtwork()}
+		a.tracks = []track{{path: file.Name(), title: song.Title, artist: "chiptune.app", album: song.Game, source: a, radioFormat: song.Format}}
 		if !p.start(a, 0) {
 			_ = os.Remove(file.Name())
 			return
 		}
-		a.radioArtwork = requestRadioArtwork(radio.ctx, song.catalogPath)
-		if len(radio.history) == 0 {
+		a.radioArtwork = radio.RequestGameArtwork(session.ctx, song.CatalogPath)
+		if len(session.history) == 0 {
 			p.popup, p.lyricsMode = true, false
 		}
-		radio.history = append(radio.history, a)
+		session.history = append(session.history, a)
 		const historyLimit = 8
-		if len(radio.history) > historyLimit {
-			_ = os.Remove(radio.history[0].tracks[0].path)
-			radio.history[0] = nil
-			radio.history = radio.history[1:]
+		if len(session.history) > historyLimit {
+			_ = os.Remove(session.history[0].tracks[0].path)
+			session.history[0] = nil
+			session.history = session.history[1:]
 		}
-		radio.index = len(radio.history) - 1
+		session.index = len(session.history) - 1
 		p.requestRadioSong()
 	default:
 	}
-}
-
-func findRadioSong(ctx context.Context, lastGame string) radioSong {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	client := &http.Client{Timeout: 10 * time.Second}
-	for _, index := range rand.Perm(len(radioCatalogs))[:3] {
-		if ctx.Err() != nil {
-			break
-		}
-		files, err := shuffledGameFiles(ctx, client, chiptuneOrigin, radioCatalogs[index])
-		if err != nil {
-			continue
-		}
-		for _, file := range files {
-			if ctx.Err() != nil {
-				break
-			}
-			game := path.Base(path.Dir(file))
-			if game == lastGame {
-				continue
-			}
-			data, err := radioGet(ctx, client, (&url.URL{Scheme: "https", Host: "chiptune.app", Path: "/catalog/" + file}).String(), 8<<20)
-			if err != nil {
-				continue
-			}
-			data, err = unpackRadioFile(data)
-			if err != nil {
-				continue
-			}
-			wav, err := renderRadioTrack(ctx, data)
-			if err == nil {
-				ext := path.Ext(file)
-				return radioSong{title: strings.TrimSuffix(path.Base(file), ext), game: game,
-					format: strings.ToUpper(strings.TrimPrefix(ext, ".")), catalogPath: file, wav: wav}
-			}
-		}
-	}
-	return radioSong{err: errors.New("no playable tracks found. Press > to retry")}
-}
-
-func unpackRadioFile(data []byte) ([]byte, error) {
-	if !bytes.HasPrefix(data, []byte{0x1f, 0x8b}) {
-		return data, nil
-	}
-	reader, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-	const limit = 16 << 20
-	unpacked, err := io.ReadAll(io.LimitReader(reader, limit+1))
-	if len(unpacked) > limit {
-		return nil, errors.New("uncompressed chiptune is too large")
-	}
-	return unpacked, err
-}
-
-func shuffledGameFiles(ctx context.Context, client *http.Client, origin, catalog string) ([]string, error) {
-	query := url.Values{"path": {catalog}, "limit": {"12"}}
-	data, err := radioGet(ctx, client, origin+"/api/shuffle?"+query.Encode(), 1<<20)
-	if err != nil {
-		return nil, err
-	}
-	var response struct{ Items []string }
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, err
-	}
-	files := make([]string, 0, 3)
-	for _, item := range response.Items {
-		file := strings.TrimPrefix(item, "/")
-		if !strings.HasPrefix(file, catalog+"/") || path.Clean(file) != file || strings.Contains(file, "\\") {
-			continue
-		}
-		switch strings.ToLower(path.Ext(file)) {
-		case ".nsf", ".nsfe", ".gbs", ".spc", ".vgm", ".vgz", ".gym":
-			files = append(files, file)
-			if len(files) == 3 {
-				return files, nil
-			}
-		}
-	}
-	return files, nil
-}
-
-func radioGet(ctx context.Context, client *http.Client, endpoint string, limit int64) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Elsewhere/1.0 (macOS music player)")
-	response, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("radio request: %s", response.Status)
-	}
-	if response.ContentLength > limit {
-		return nil, errors.New("radio response too large")
-	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if int64(len(data)) > limit {
-		return nil, errors.New("radio response too large")
-	}
-	return data, err
 }

@@ -1,10 +1,10 @@
 //go:build darwin || (linux && cgo)
 
-package app
+package radio
 
 /*
 #cgo linux LDFLAGS: -ldl
-#include "radio_decoder.h"
+#include "decoder.h"
 */
 import "C"
 
@@ -18,7 +18,8 @@ import (
 
 const radioRate = 32000
 
-func radioDecoderAvailable() bool {
+// DecoderAvailable reports whether Game Music Emu can be loaded.
+func DecoderAvailable() bool {
 	return C.radio_decoder_available() != 0
 }
 
@@ -83,5 +84,5 @@ func renderRadioTrack(ctx context.Context, data []byte) ([]byte, error) {
 	return wav, nil
 }
 
-// chiptuneSupported: this build can load Game Music Emu when it's installed.
-const chiptuneSupported = true
+// ChiptuneSupported: this build can load Game Music Emu when it's installed.
+const ChiptuneSupported = true
