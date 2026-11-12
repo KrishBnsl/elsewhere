@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"elsewhere/internal/fsutil"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,7 +73,7 @@ func (f *friendsClient) prepare() error {
 		return err
 	}
 	defer lock.Close()
-	if err := lockFile(lock); err != nil {
+	if err := fsutil.LockFile(lock); err != nil {
 		return err
 	}
 	if data, err := os.ReadFile(f.credentialPath); err == nil {
@@ -84,7 +85,7 @@ func (f *friendsClient) prepare() error {
 		return err
 	}
 	token := rand.Text()
-	if err := writeLocalFile(f.credentialPath, []byte(token)); err != nil {
+	if err := fsutil.WriteFile(f.credentialPath, []byte(token)); err != nil {
 		return err
 	}
 	f.token = token

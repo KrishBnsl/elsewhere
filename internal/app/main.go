@@ -2,6 +2,9 @@ package app
 
 import (
 	"crypto/sha256"
+	"elsewhere/internal/console"
+	"elsewhere/internal/update"
+	"elsewhere/internal/version"
 	"fmt"
 	"io"
 	"os"
@@ -24,7 +27,7 @@ func runTerminal(p *player) error {
 	if !term.IsTerminal(in) || !term.IsTerminal(out) {
 		return fmt.Errorf("a terminal is required")
 	}
-	restoreConsole, err := prepareConsole()
+	restoreConsole, err := console.Prepare()
 	if err != nil {
 		return err
 	}
@@ -35,7 +38,7 @@ func runTerminal(p *player) error {
 	}
 
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, terminationSignals()...)
+	signal.Notify(signals, console.TerminationSignals()...)
 	defer signal.Stop(signals)
 	var shownCover kittyPlacement
 	p.kittyGraphics = supportsKittyGraphics()
@@ -254,12 +257,12 @@ func Main() {
 	var err error
 	switch {
 	case len(os.Args) == 2 && os.Args[1] == "--version":
-		fmt.Println("Elsewhere " + buildVersion)
+		fmt.Println("Elsewhere " + version.Build)
 		return
 	case len(os.Args) >= 2 && os.Args[1] == "update":
 		switch {
 		case len(os.Args) == 2:
-			err = updateRelease()
+			err = update.Run()
 		case len(os.Args) == 3 && (os.Args[2] == "--help" || os.Args[2] == "-h"):
 			fmt.Println("Usage: elsewhere update")
 			return

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"elsewhere/internal/fsutil"
 	"fmt"
 	"image"
 	"image/color"
@@ -110,7 +111,7 @@ func TestCoverPromptSavesOnlyAfterAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := sha256.Sum256([]byte("test artist\x00test album"))
-	if err := writeLocalFile(filepath.Join(cache, "Elsewhere", "covers", fmt.Sprintf("%x.img", key)), data.Bytes()); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(cache, "Elsewhere", "covers", fmt.Sprintf("%x.img", key)), data.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 

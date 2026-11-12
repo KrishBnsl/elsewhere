@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"elsewhere/internal/fsutil"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -179,7 +180,7 @@ func onlineCover(ctx context.Context, title, artist string) (*cover, []byte, err
 	client := &http.Client{Timeout: 12 * time.Second}
 	art, data, err := downloadCover(ctx, client, coverArchive+group+"/front-250")
 	if err == nil && art != nil && filename != "" {
-		_ = writeLocalFile(filename, data)
+		_ = fsutil.WriteFile(filename, data)
 	}
 	if err != nil {
 		return nil, nil, coverStageError("Image download", err)

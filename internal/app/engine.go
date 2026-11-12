@@ -6,6 +6,7 @@ package app
 
 import (
 	"bufio"
+	"elsewhere/internal/update"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,7 +82,7 @@ func engineCommand() (string, error) {
 		}
 		return path, nil
 	}
-	if current, err := executablePath(); err == nil {
+	if current, err := update.ExecutablePath(); err == nil {
 		// LookPath also supplies the .exe suffix on Windows.
 		if bundled, err := exec.LookPath(filepath.Join(filepath.Dir(current), "dhunn")); err == nil {
 			return bundled, nil

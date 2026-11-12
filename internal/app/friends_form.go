@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/fsutil"
 	"os"
 	"strings"
 
@@ -26,7 +27,7 @@ func (f *friendsClient) rememberName(name string) error {
 	if name == "" || name == f.displayName {
 		return nil
 	}
-	if err := writeLocalFile(f.credentialPath+".name", []byte(name)); err != nil {
+	if err := fsutil.WriteFile(f.credentialPath+".name", []byte(name)); err != nil {
 		return err
 	}
 	f.displayName = name

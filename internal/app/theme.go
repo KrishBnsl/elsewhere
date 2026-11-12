@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/fsutil"
 	"fmt"
 	"strings"
 	"unicode"
@@ -149,7 +150,7 @@ func (p *player) saveTheme() {
 	if p.themePath == "" {
 		return
 	}
-	if err := writeLocalFile(p.themePath, []byte(activeTheme.name+"\n")); err != nil {
+	if err := fsutil.WriteFile(p.themePath, []byte(activeTheme.name+"\n")); err != nil {
 		p.notice = "Could not save theme: " + err.Error()
 	}
 }

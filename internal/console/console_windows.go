@@ -1,6 +1,7 @@
 //go:build windows
 
-package app
+// Package console adapts the terminal or console the player runs in.
+package console
 
 import (
 	"os"
@@ -9,12 +10,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// terminationSignals end the player cleanly.
-func terminationSignals() []os.Signal { return []os.Signal{os.Interrupt, syscall.SIGTERM} }
+// TerminationSignals end the player cleanly.
+func TerminationSignals() []os.Signal { return []os.Signal{os.Interrupt, syscall.SIGTERM} }
 
-// prepareConsole turns on escape sequences (colours, cursor moves, images) and UTF-8 output
+// Prepare turns on escape sequences (colours, cursor moves, images) and UTF-8 output
 // in the Windows console, and returns how to put things back.
-func prepareConsole() (func(), error) {
+func Prepare() (func(), error) {
 	out := windows.Handle(os.Stdout.Fd())
 	var mode uint32
 	if err := windows.GetConsoleMode(out, &mode); err != nil {
@@ -31,11 +32,4 @@ func prepareConsole() (func(), error) {
 			windows.SetConsoleOutputCP(codePage)
 		}
 	}, nil
-}
-
-// lockFile takes an exclusive lock on f without waiting.
-func lockFile(f *os.File) error {
-	var overlapped windows.Overlapped
-	return windows.LockFileEx(windows.Handle(f.Fd()),
-		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &overlapped)
 }

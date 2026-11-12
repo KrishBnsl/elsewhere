@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"elsewhere/internal/fsutil"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -58,7 +59,7 @@ func onlineLyrics(ctx context.Context, t track, duration float64) lyricsResult {
 		return lyricsResult{status: "No synced lyrics found"}
 	}
 	if filename != "" {
-		_ = writeLocalFile(filename, []byte(raw))
+		_ = fsutil.WriteFile(filename, []byte(raw))
 	}
 	return lyricsResult{lines: lines}
 }
@@ -95,25 +96,4 @@ func fetchLyrics(ctx context.Context, client *http.Client, endpoint string) (str
 		return "", "No synced lyrics found"
 	}
 	return record.SyncedLyrics, ""
-}
-
-func writeLocalFile(filename string, data []byte) error {
-	folder := filepath.Dir(filename)
-	if err := os.MkdirAll(folder, 0700); err != nil {
-		return err
-	}
-	file, err := os.CreateTemp(folder, ".elsewhere-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	_, writeErr := file.Write(data)
-	closeErr := file.Close()
-	if writeErr != nil {
-		return writeErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return os.Rename(file.Name(), filename)
 }

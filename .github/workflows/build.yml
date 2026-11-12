@@ -85,7 +85,7 @@ jobs:
         run: |
           version=dev
           if [ "$GITHUB_REF_TYPE" = tag ]; then version="$GITHUB_REF_NAME"; fi
-          go build -trimpath -ldflags="-s -w -X elsewhere/internal/app.buildVersion=$version" -o "../pkg/elsewhere$EXE" ./cmd/elsewhere
+          go build -trimpath -ldflags="-s -w -X elsewhere/internal/version.Build=$version" -o "../pkg/elsewhere$EXE" ./cmd/elsewhere
       - name: Package
         run: |
           mkdir -p pkg out

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/fsutil"
 	"encoding/json"
 	"os"
 	"reflect"
@@ -53,7 +54,7 @@ func (p *player) setTasteSharing(value string) {
 			p.notice = "Select a Melisma listener before sharing taste"
 			return
 		}
-		if err := writeLocalFile(path, []byte(p.engine.user)); err != nil {
+		if err := fsutil.WriteFile(path, []byte(p.engine.user)); err != nil {
 			p.notice = "Could not save taste preference: " + err.Error()
 			return
 		}

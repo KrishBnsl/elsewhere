@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/fsutil"
 	"encoding/json"
 	"os"
 )
@@ -40,7 +41,7 @@ func (p *player) saveSession() error {
 	if err != nil {
 		return err
 	}
-	return writeLocalFile(p.sessionPath, data)
+	return fsutil.WriteFile(p.sessionPath, data)
 }
 
 func (p *player) restoreSession() {

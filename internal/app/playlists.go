@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/fsutil"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -42,7 +43,7 @@ func editPlaylists(path string, edit func(*[]playlist) error) ([]playlist, error
 		return nil, err
 	}
 	defer lock.Close()
-	if err := lockFile(lock); err != nil {
+	if err := fsutil.LockFile(lock); err != nil {
 		return nil, fmt.Errorf("playlist store busy: %w", err)
 	}
 	lists, err := readPlaylists(path)
@@ -56,7 +57,7 @@ func editPlaylists(path string, edit func(*[]playlist) error) ([]playlist, error
 	if err != nil {
 		return nil, err
 	}
-	return lists, writeLocalFile(path, data)
+	return lists, fsutil.WriteFile(path, data)
 }
 
 type searchPrompt struct {

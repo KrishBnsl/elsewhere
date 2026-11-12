@@ -1,4 +1,5 @@
-package app
+// Package update installs the latest Elsewhere and Melisma release over the running program.
+package update
 
 import (
 	"archive/tar"
@@ -7,6 +8,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"elsewhere/internal/fsutil"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -23,8 +25,6 @@ import (
 const releaseDownloads = "https://github.com/KrishBnsl/elsewhere/releases/latest/download"
 const maxReleaseBytes = 512 << 20
 
-var buildVersion = "dev"
-
 func releaseAsset() (asset, suffix string, err error) {
 	switch runtime.GOOS + "/" + runtime.GOARCH {
 	case "darwin/arm64":
@@ -39,7 +39,8 @@ func releaseAsset() (asset, suffix string, err error) {
 	return "", "", fmt.Errorf("no release bundle for %s/%s; rebuild from source to update", runtime.GOOS, runtime.GOARCH)
 }
 
-func executablePath() (string, error) {
+// ExecutablePath is the running program, with symlinks resolved.
+func ExecutablePath() (string, error) {
 	path, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -47,12 +48,13 @@ func executablePath() (string, error) {
 	return filepath.EvalSymlinks(path)
 }
 
-func updateRelease() error {
+// Run installs the latest release next to the running executable.
+func Run() error {
 	asset, suffix, err := releaseAsset()
 	if err != nil {
 		return err
 	}
-	current, err := executablePath()
+	current, err := ExecutablePath()
 	if err != nil {
 		return err
 	}
@@ -201,7 +203,7 @@ func installRelease(bin, base, asset, suffix string) error {
 		return err
 	}
 	defer lock.Close()
-	if err := lockFile(lock); err != nil {
+	if err := fsutil.LockFile(lock); err != nil {
 		return fmt.Errorf("another update may be running: %w", err)
 	}
 	// Windows can hold the old executable open until the updater process exits.

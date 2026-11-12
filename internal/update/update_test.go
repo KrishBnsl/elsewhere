@@ -1,4 +1,4 @@
-package app
+package update
 
 import (
 	"archive/tar"

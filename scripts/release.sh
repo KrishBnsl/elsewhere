@@ -21,7 +21,7 @@ asset="elsewhere-macos-arm64.tar.gz"
 
 rm -rf "$out" && mkdir -p "$out/pkg"
 echo "▸ Elsewhere"
-(cd "$here" && go test ./... >/dev/null && go build -trimpath -ldflags="-s -w -X elsewhere/internal/app.buildVersion=$tag" -o "$out/pkg/elsewhere" ./cmd/elsewhere)
+(cd "$here" && go test ./... >/dev/null && go build -trimpath -ldflags="-s -w -X elsewhere/internal/version.Build=$tag" -o "$out/pkg/elsewhere" ./cmd/elsewhere)
 echo "▸ Melisma"
 (cd "$melisma" && cargo build --release --locked -q -p dhunn-cli)
 cp "$melisma/target/release/dhunn" "$out/pkg/dhunn"
