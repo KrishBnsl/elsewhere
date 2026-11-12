@@ -3,6 +3,7 @@ package app
 import (
 	"crypto/sha256"
 	"elsewhere/internal/console"
+	"elsewhere/internal/kitty"
 	"elsewhere/internal/update"
 	"elsewhere/internal/version"
 	"fmt"
@@ -40,12 +41,12 @@ func runTerminal(p *player) error {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, console.TerminationSignals()...)
 	defer signal.Stop(signals)
-	var shownCover kittyPlacement
-	p.kittyGraphics = supportsKittyGraphics()
-	imageID := newKittyImageID()
+	var shownCover kitty.Placement
+	p.kittyGraphics = kitty.Supported()
+	imageID := kitty.NewImageID()
 	defer func() {
-		if shownCover.art != nil {
-			fmt.Fprint(os.Stdout, deleteKittyImage(imageID))
+		if shownCover.Visible() {
+			fmt.Fprint(os.Stdout, kitty.Delete(imageID))
 		}
 		fmt.Fprint(os.Stdout, "\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l")
 		term.Restore(in, original)
@@ -106,9 +107,9 @@ func runTerminal(p *player) error {
 		rows := p.frame(width, height)
 		var output strings.Builder
 		resized := width != lastWidth || height != lastHeight || len(rows) != len(previous)
-		coverChanged := resized || shownCover != p.coverPlacement
-		if coverChanged && shownCover.art != nil {
-			output.WriteString(deleteKittyImage(imageID))
+		coverChanged := resized || !shownCover.Equal(p.coverPlacement)
+		if coverChanged && shownCover.Visible() {
+			output.WriteString(kitty.Delete(imageID))
 		}
 		if resized {
 			output.WriteString("\x1b[2J")
@@ -119,8 +120,8 @@ func runTerminal(p *player) error {
 				fmt.Fprintf(&output, "\x1b[%d;1H%s", i+1, row)
 			}
 		}
-		if coverChanged && p.coverPlacement.art != nil {
-			p.coverPlacement.write(&output, imageID)
+		if coverChanged && p.coverPlacement.Visible() {
+			p.coverPlacement.Write(&output, imageID)
 		}
 		shownCover = p.coverPlacement
 		if output.Len() > 0 {

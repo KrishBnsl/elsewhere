@@ -1,4 +1,5 @@
-package app
+// Package lyrics loads synced (.lrc) lyrics from disk and from LRCLIB.
+package lyrics
 
 import (
 	"bufio"
@@ -11,12 +12,14 @@ import (
 	"strings"
 )
 
-type lyricLine struct {
-	at   float64
-	text string
+// Line is one timestamped lyric.
+type Line struct {
+	At   float64
+	Text string
 }
 
-func loadLyrics(audioPath string) []lyricLine {
+// Load reads the .lrc file next to audioPath, if any.
+func Load(audioPath string) []Line {
 	base := strings.TrimSuffix(audioPath, filepath.Ext(audioPath))
 	for _, ext := range []string{".lrc", ".LRC"} {
 		path := base + ext
@@ -28,7 +31,7 @@ func loadLyrics(audioPath string) []lyricLine {
 		if err != nil {
 			continue
 		}
-		lines := parseLyrics(io.LimitReader(file, 1<<20))
+		lines := Parse(io.LimitReader(file, 1<<20))
 		file.Close()
 		if len(lines) > 0 {
 			return lines
@@ -37,8 +40,9 @@ func loadLyrics(audioPath string) []lyricLine {
 	return nil
 }
 
-func parseLyrics(reader io.Reader) []lyricLine {
-	var lines []lyricLine
+// Parse reads LRC text into time-ordered lines.
+func Parse(reader io.Reader) []Line {
+	var lines []Line
 	var offset float64
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
@@ -66,16 +70,17 @@ func parseLyrics(reader io.Reader) []lyricLine {
 			text = rest
 		}
 		for _, at := range times {
-			lines = append(lines, lyricLine{at, strings.TrimSpace(text)})
+			lines = append(lines, Line{at, strings.TrimSpace(text)})
 		}
 	}
 	for i := range lines {
-		lines[i].at = math.Max(0, lines[i].at+offset)
+		lines[i].At = math.Max(0, lines[i].At+offset)
 	}
-	sort.SliceStable(lines, func(i, j int) bool { return lines[i].at < lines[j].at })
+	sort.SliceStable(lines, func(i, j int) bool { return lines[i].At < lines[j].At })
 	return lines
 }
 
-func currentLyric(lines []lyricLine, elapsed float64) int {
-	return sort.Search(len(lines), func(i int) bool { return lines[i].at > elapsed }) - 1
+// Current is the index of the line playing at elapsed seconds, or -1 before the first line.
+func Current(lines []Line, elapsed float64) int {
+	return sort.Search(len(lines), func(i int) bool { return lines[i].At > elapsed }) - 1
 }

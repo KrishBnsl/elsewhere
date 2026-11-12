@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"elsewhere/internal/kitty"
+	"elsewhere/internal/lyrics"
 	"fmt"
 	"math/rand/v2"
 	"strings"
@@ -32,9 +34,9 @@ type player struct {
 	nextAnalysis, nextOutput, nextMedia   time.Time
 	lyricsMode                            bool
 	lyricsPath                            string
-	lyrics                                []lyricLine
+	lyrics                                []lyrics.Line
 	lyricsStatus                          string
-	lyricsRequest                         <-chan lyricsResult
+	lyricsRequest                         <-chan lyrics.Result
 	cancelLyrics                          context.CancelFunc
 	coverLookup                           coverLookup
 	likes                                 songLikes
@@ -46,7 +48,7 @@ type player struct {
 	searchPrompt                          searchPrompt
 	radio                                 *radioSession
 	kittyGraphics                         bool
-	coverPlacement                        kittyPlacement
+	coverPlacement                        kitty.Placement
 	coverPrompt                           *album
 	live                                  *liveRadio
 	queue                                 []track
@@ -304,21 +306,22 @@ func (p *player) updateLyrics() {
 	if t.path != p.lyricsPath {
 		p.stopLyricsLookup()
 		p.lyricsPath = t.path
-		p.lyrics = loadLyrics(t.path)
+		p.lyrics = lyrics.Load(t.path)
 		p.lyricsStatus = ""
 		if len(p.lyrics) == 0 {
 			p.lyricsStatus = "Finding lyrics on LRCLIB..."
 			ctx, cancel := context.WithCancel(context.Background())
-			results := make(chan lyricsResult, 1)
+			results := make(chan lyrics.Result, 1)
 			p.cancelLyrics, p.lyricsRequest = cancel, results
-			go func(track track, duration float64) {
-				results <- onlineLyrics(ctx, track, duration)
-			}(*t, p.state.duration)
+			query := lyrics.Query{Title: t.title, Artist: t.artist, Album: t.album, TaggedAlbum: t.taggedAlbum}
+			go func(duration float64) {
+				results <- lyrics.Online(ctx, query, duration)
+			}(p.state.duration)
 		}
 	}
 	select {
 	case result := <-p.lyricsRequest:
-		p.lyrics, p.lyricsStatus = result.lines, result.status
+		p.lyrics, p.lyricsStatus = result.Lines, result.Status
 		p.cancelLyrics()
 		p.cancelLyrics, p.lyricsRequest = nil, nil
 	default:

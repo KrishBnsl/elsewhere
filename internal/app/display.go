@@ -1,6 +1,8 @@
 package app
 
 import (
+	"elsewhere/internal/kitty"
+	"elsewhere/internal/lyrics"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -38,7 +40,7 @@ func progress(elapsed, duration float64, width int) string {
 }
 
 func (p *player) frame(width, height int) []string {
-	p.coverPlacement = kittyPlacement{}
+	p.coverPlacement = kitty.Placement{}
 	row := func(text, style string) string { return activeTheme.screen + style + cell(text, width) + reset }
 	radioShortcut := ""
 	if width >= 50 {
@@ -358,7 +360,7 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 	}
 	nativeCover := !hidden && p.kittyGraphics && p.social.panel == nil && p.finder == nil && p.playlistDialog == nil && p.radioPicker == nil && p.queueView == nil && p.themePicker == nil && p.coverPrompt == nil && source.cover != nil && len(source.cover.png) > 0
 	if nativeCover {
-		p.coverPlacement = kittyPlacement{art: source.cover, row: y + 1, column: x + 2, columns: size * 2, rows: size}
+		p.coverPlacement = kitty.Placement{PNG: source.cover.png, Row: y + 1, Column: x + 2, Columns: size * 2, Rows: size}
 	}
 	emptyArt := strings.Repeat(" ", size*2)
 	for i := range size {
@@ -423,7 +425,7 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 	place(boxBottom(columns))
 }
 
-func lyricRows(lines []lyricLine, status string, elapsed float64, width, height int) []string {
+func lyricRows(lines []lyrics.Line, status string, elapsed float64, width, height int) []string {
 	rows := make([]string, height)
 	for i := range rows {
 		rows[i] = cell("", width)
@@ -433,23 +435,23 @@ func lyricRows(lines []lyricLine, status string, elapsed float64, width, height 
 		return rows
 	}
 
-	current := currentLyric(lines, elapsed)
+	current := lyrics.Current(lines, elapsed)
 	for row := range rows {
 		index := current + row
 		if height >= 3 {
 			index--
 		}
-		if index < 0 || index >= len(lines) || lines[index].text == "" {
+		if index < 0 || index >= len(lines) || lines[index].Text == "" {
 			continue
 		}
 		if index == current {
-			rows[row] = "\x1b[1m" + cell("› "+lines[index].text, width) + "\x1b[22m"
+			rows[row] = "\x1b[1m" + cell("› "+lines[index].Text, width) + "\x1b[22m"
 		} else {
-			rows[row] = dim + cell("  "+lines[index].text, width) + amber
+			rows[row] = dim + cell("  "+lines[index].Text, width) + amber
 		}
 	}
 	if current < 0 && height == 1 {
-		rows[0] = dim + cell("  "+lines[0].text, width) + amber
+		rows[0] = dim + cell("  "+lines[0].Text, width) + amber
 	}
 	return rows
 }

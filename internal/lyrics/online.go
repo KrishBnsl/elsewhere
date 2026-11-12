@@ -1,4 +1,4 @@
-package app
+package lyrics
 
 import (
 	"context"
@@ -17,20 +17,28 @@ import (
 	"time"
 )
 
-const lyricsEndpoint = "https://lrclib.net/api/get"
+const lrclibEndpoint = "https://lrclib.net/api/get"
 
-type lyricsResult struct {
-	lines  []lyricLine
-	status string
+// Result is what an online lookup found, or why it found nothing.
+type Result struct {
+	Lines  []Line
+	Status string
 }
 
-func onlineLyrics(ctx context.Context, t track, duration float64) lyricsResult {
-	if t.title == "" || t.artist == "" || t.artist == "Unknown artist" {
-		return lyricsResult{status: "Add title and artist tags to search"}
+// Query describes the track to look up.
+type Query struct {
+	Title, Artist, Album string
+	TaggedAlbum          bool
+}
+
+// Online finds synced lyrics on LRCLIB, caching hits under the user cache directory.
+func Online(ctx context.Context, t Query, duration float64) Result {
+	if t.Title == "" || t.Artist == "" || t.Artist == "Unknown artist" {
+		return Result{Status: "Add title and artist tags to search"}
 	}
-	query := url.Values{"track_name": {t.title}, "artist_name": {t.artist}}
-	if t.taggedAlbum {
-		query.Set("album_name", t.album)
+	query := url.Values{"track_name": {t.Title}, "artist_name": {t.Artist}}
+	if t.TaggedAlbum {
+		query.Set("album_name", t.Album)
 	}
 	if seconds := int(math.Round(duration)); seconds >= 1 && seconds <= 3600 {
 		query.Set("duration", strconv.Itoa(seconds))
@@ -41,30 +49,30 @@ func onlineLyrics(ctx context.Context, t track, duration float64) lyricsResult {
 	if cache != "" {
 		filename = filepath.Join(cache, "Elsewhere", "lyrics", fmt.Sprintf("%x.lrc", sha256.Sum256([]byte(signature))))
 		if file, err := os.Open(filename); err == nil {
-			lines := parseLyrics(io.LimitReader(file, 1<<20))
+			lines := Parse(io.LimitReader(file, 1<<20))
 			file.Close()
 			if len(lines) > 0 {
-				return lyricsResult{lines: lines}
+				return Result{Lines: lines}
 			}
 		}
 	}
 
 	client := &http.Client{Timeout: 8 * time.Second}
-	raw, status := fetchLyrics(ctx, client, lyricsEndpoint+"?"+signature)
+	raw, status := fetch(ctx, client, lrclibEndpoint+"?"+signature)
 	if status != "" {
-		return lyricsResult{status: status}
+		return Result{Status: status}
 	}
-	lines := parseLyrics(strings.NewReader(raw))
+	lines := Parse(strings.NewReader(raw))
 	if len(lines) == 0 {
-		return lyricsResult{status: "No synced lyrics found"}
+		return Result{Status: "No synced lyrics found"}
 	}
 	if filename != "" {
 		_ = fsutil.WriteFile(filename, []byte(raw))
 	}
-	return lyricsResult{lines: lines}
+	return Result{Lines: lines}
 }
 
-func fetchLyrics(ctx context.Context, client *http.Client, endpoint string) (string, string) {
+func fetch(ctx context.Context, client *http.Client, endpoint string) (string, string) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", "Lyrics lookup unavailable"

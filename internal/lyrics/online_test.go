@@ -1,4 +1,4 @@
-package app
+package lyrics
 
 import (
 	"context"
@@ -31,7 +31,7 @@ func TestFetchLyrics(t *testing.T) {
 		{"/plain", "", "No synced lyrics found"},
 		{"/missing", "", "No synced lyrics found"},
 	} {
-		raw, status := fetchLyrics(context.Background(), server.Client(), server.URL+tt.path)
+		raw, status := fetch(context.Background(), server.Client(), server.URL+tt.path)
 		if raw != tt.raw || status != tt.status {
 			t.Errorf("%s: got (%q, %q), want (%q, %q)", tt.path, raw, status, tt.raw, tt.status)
 		}
