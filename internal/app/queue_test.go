@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/audio"
 	"encoding/binary"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ func queueFixture(t *testing.T) (*player, *album, *album) {
 		b.tracks = append(b.tracks, track{path: testWAV(t, dir, name+".wav"), title: name, source: b})
 	}
 	p := &player{albums: []*album{a, b}, results: []*album{a, b}, volume: 70, likedSongs: &album{likedSongs: true}}
-	t.Cleanup(stopAudio)
+	t.Cleanup(audio.Stop)
 	return p, a, b
 }
 

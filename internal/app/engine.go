@@ -6,13 +6,12 @@ package app
 
 import (
 	"bufio"
-	"elsewhere/internal/update"
+	"elsewhere/internal/audio"
+	"elsewhere/internal/melisma"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -74,44 +73,6 @@ type engineStart struct {
 	err    error
 }
 
-// engineCommand prefers the engine installed beside Elsewhere after checking the override.
-func engineCommand() (string, error) {
-	if path := os.Getenv("MELISMA_ENGINE"); path != "" {
-		if path == "off" {
-			return "", errors.New("turned off")
-		}
-		return path, nil
-	}
-	if current, err := update.ExecutablePath(); err == nil {
-		// LookPath also supplies the .exe suffix on Windows.
-		if bundled, err := exec.LookPath(filepath.Join(filepath.Dir(current), "dhunn")); err == nil {
-			return bundled, nil
-		}
-	}
-	path, err := exec.LookPath("dhunn")
-	if err != nil {
-		return "", errors.New("dhunn isn't installed")
-	}
-	return path, nil
-}
-
-// logFile is where the engine's own messages go, never over the player's screen.
-func logFile(name string) *os.File {
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return nil
-	}
-	dir = filepath.Join(dir, "Elsewhere")
-	if os.MkdirAll(dir, 0700) != nil {
-		return nil
-	}
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return nil
-	}
-	return f
-}
-
 // startEngine launches the engine in the background; the result arrives on the channel.
 // Startup reads the whole library, so it can take a moment.
 func startEngine() <-chan engineStart {
@@ -124,12 +85,12 @@ func startEngine() <-chan engineStart {
 }
 
 func launchEngine() (*engine, error) {
-	path, err := engineCommand()
+	path, err := melisma.Command()
 	if err != nil {
 		return nil, err
 	}
 	cmd := exec.Command(path, "engine")
-	if f := logFile("engine.log"); f != nil {
+	if f := melisma.LogFile("engine.log"); f != nil {
 		cmd.Stderr = f
 	}
 	stdin, err := cmd.StdinPipe()
@@ -305,14 +266,14 @@ func (p *player) engineTell(op string) {
 	if p.engine == nil {
 		return
 	}
-	p.engine.tell(op, "pos", p.state.elapsed)
+	p.engine.tell(op, "pos", p.state.Elapsed)
 }
 
 // leaving reports that the current song is being left before its end, for a reason that
 // says nothing about the song ("choose"), or because you skipped it ("skip").
 func (p *player) leaving(op string) {
 	if p.active != nil && !p.finished && p.live == nil && !p.active.radio {
-		p.engine.tell(op, "pos", audioState().elapsed)
+		p.engine.tell(op, "pos", audio.State().Elapsed)
 	}
 }
 
@@ -427,7 +388,7 @@ func (p *player) steerMelisma(op string) {
 	if t == nil {
 		return
 	}
-	message, err := p.engine.steer(op, t.path, audioState().elapsed)
+	message, err := p.engine.steer(op, t.path, audio.State().Elapsed)
 	if err != nil {
 		p.notice = "Melisma: " + err.Error()
 		return
@@ -440,7 +401,7 @@ func (p *player) steerMelisma(op string) {
 		p.finished = true
 		p.melisma = true
 		if !p.advance() {
-			stopAudio()
+			audio.Stop()
 		}
 	}
 }
@@ -646,13 +607,13 @@ func (p *player) startAnalysis() {
 		p.notice = "Already analyzing: " + p.analysis.status()
 		return
 	}
-	path, err := engineCommand()
+	path, err := melisma.Command()
 	if err != nil {
 		p.notice = "Can't analyze: " + err.Error()
 		return
 	}
 	cmd := exec.Command(path, "analyze", p.path)
-	if f := logFile("analyze.log"); f != nil {
+	if f := melisma.LogFile("analyze.log"); f != nil {
 		cmd.Stderr = f
 	}
 	stdout, err := cmd.StdoutPipe()
@@ -714,7 +675,7 @@ func (p *player) tickAnalysis() {
 	if p.engine != nil {
 		old, choosing := p.engine, p.melisma
 		p.engine = nil
-		old.close(audioState().elapsed)
+		old.close(audio.State().Elapsed)
 		p.engineReady = startEngine()
 		p.melisma = choosing
 	} else if p.engineReady == nil {

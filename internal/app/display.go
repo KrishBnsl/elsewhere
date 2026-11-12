@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/audio"
 	"elsewhere/internal/kitty"
 	"elsewhere/internal/lyrics"
 	"fmt"
@@ -64,10 +65,10 @@ func (p *player) frame(width, height int) []string {
 	if hidden {
 		playing = " Mystery track · R to reveal"
 	}
-	if p.state.playing {
+	if p.state.Playing {
 		state = th.play
 	}
-	elapsed, duration := p.state.elapsed, p.state.duration
+	elapsed, duration := p.state.Elapsed, p.state.Duration
 	bar := progress(elapsed, duration, max(8, min(42, width-35)))
 	transport := fmt.Sprintf(" %s  %s %s %s   VOL %d%%", state, clock(elapsed), bar, clock(duration), p.volume)
 	if p.live != nil {
@@ -223,7 +224,7 @@ var placeholder = []string{
 	"   ██░█▓▓█░██   ", "    ██░░░░██    ", "      ████      ", "                ",
 }
 
-func artworkRow(cover *cover, row, size int) string {
+func artworkRow(cover *audio.Cover, row, size int) string {
 	var line strings.Builder
 	if cover == nil {
 		pixels := []rune(placeholder[row*len(placeholder)/size])
@@ -234,8 +235,8 @@ func artworkRow(cover *cover, row, size int) string {
 	}
 	// A half block gives each terminal cell independent top and bottom pixels.
 	pixels := size * 2
-	sample := func(pixel int) int { return (2*pixel + 1) * coverSize / (2 * pixels) }
-	top, bottom := cover.pixels[sample(row*2)], cover.pixels[sample(row*2+1)]
+	sample := func(pixel int) int { return (2*pixel + 1) * audio.CoverSize / (2 * pixels) }
+	top, bottom := cover.Pixels[sample(row*2)], cover.Pixels[sample(row*2+1)]
 	var lastTop, lastBottom [4]byte
 	for x := range pixels {
 		upper, lower := top[sample(x)], bottom[sample(x)]
@@ -258,7 +259,7 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 	hidden := p.hiddenTrack()
 	showLyrics := p.lyricsMode && !hidden
 	columns := min(112, width-max(2, width/10))
-	size := min(coverSize/2, max(8, (columns-36)/3), height-5)
+	size := min(audio.CoverSize/2, max(8, (columns-36)/3), height-5)
 	infoWidth := columns - size*2 - 6
 	x := (width-columns)/2 + 1
 	padding := 0
@@ -301,8 +302,8 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 	}
 	info = append(info, reasons...)
 	info = append(info,
-		progress(p.state.elapsed, p.state.duration, infoWidth-2),
-		state+"  "+clock(p.state.elapsed)+" / "+clock(p.state.duration),
+		progress(p.state.Elapsed, p.state.Duration, infoWidth-2),
+		state+"  "+clock(p.state.Elapsed)+" / "+clock(p.state.Duration),
 		volume, trackInfo)
 	if p.live != nil {
 		info[4] = strings.Repeat(activeTheme.box.h, infoWidth-2)
@@ -322,7 +323,7 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 	featureTitle := activeTheme.box.h + " " + activeTheme.visualTitle
 	if showLyrics {
 		featureTitle = activeTheme.box.h + " SYNCED LYRICS"
-		feature = lyricRows(p.lyrics, p.lyricsStatus, p.state.elapsed, infoWidth, chartHeight)
+		feature = lyricRows(p.lyrics, p.lyricsStatus, p.state.Elapsed, infoWidth, chartHeight)
 	} else if (p.visual || hidden) && p.analysisAvailable {
 		feature = spectrumRows(p.levels, infoWidth, chartHeight, p.phase)
 	}
@@ -358,9 +359,9 @@ func (p *player) overlay(rows []string, width int, t track, state string) {
 			source.artworkRows[i] = artworkRow(art, i, size)
 		}
 	}
-	nativeCover := !hidden && p.kittyGraphics && p.social.panel == nil && p.finder == nil && p.playlistDialog == nil && p.radioPicker == nil && p.queueView == nil && p.themePicker == nil && p.coverPrompt == nil && source.cover != nil && len(source.cover.png) > 0
+	nativeCover := !hidden && p.kittyGraphics && p.social.panel == nil && p.finder == nil && p.playlistDialog == nil && p.radioPicker == nil && p.queueView == nil && p.themePicker == nil && p.coverPrompt == nil && source.cover != nil && len(source.cover.PNG) > 0
 	if nativeCover {
-		p.coverPlacement = kitty.Placement{PNG: source.cover.png, Row: y + 1, Column: x + 2, Columns: size * 2, Rows: size}
+		p.coverPlacement = kitty.Placement{PNG: source.cover.PNG, Row: y + 1, Column: x + 2, Columns: size * 2, Rows: size}
 	}
 	emptyArt := strings.Repeat(" ", size*2)
 	for i := range size {
@@ -456,7 +457,7 @@ func lyricRows(lines []lyrics.Line, status string, elapsed float64, width, heigh
 	return rows
 }
 
-func spectrumRows(levels [bandCount]float32, width, height, phase int) []string {
+func spectrumRows(levels [audio.BandCount]float32, width, height, phase int) []string {
 	th := activeTheme
 	glyphs := []rune(th.rainGlyphs)
 	blocks := []rune(" ▁▂▃▄▅▆▇█")

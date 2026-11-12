@@ -1,6 +1,6 @@
 //go:build !darwin || dhunn_audio
 
-package app
+package audio
 
 import (
 	"bytes"
@@ -29,13 +29,13 @@ func TestRenderCover(t *testing.T) {
 		t.Fatal("no cover")
 	}
 	// The whole picture is squeezed into the square.
-	if left := art.pixels[10][5]; left != [4]byte{255, 0, 0, 255} {
+	if left := art.Pixels[10][5]; left != [4]byte{255, 0, 0, 255} {
 		t.Fatalf("left %v", left)
 	}
-	if right := art.pixels[10][coverSize-5]; right != [4]byte{0, 0, 255, 255} {
+	if right := art.Pixels[10][CoverSize-5]; right != [4]byte{0, 0, 255, 255} {
 		t.Fatalf("right %v", right)
 	}
-	thumb, err := png.Decode(bytes.NewReader(art.png))
+	thumb, err := png.Decode(bytes.NewReader(art.PNG))
 	if err != nil {
 		t.Fatal(err)
 	}

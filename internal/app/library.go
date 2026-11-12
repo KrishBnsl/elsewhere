@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/audio"
 	"fmt"
 	"io/fs"
 	"os"
@@ -27,7 +28,7 @@ type track struct {
 type album struct {
 	title, artist        string
 	tracks               []track
-	cover                *cover
+	cover                *audio.Cover
 	loaded               bool
 	artworkSize          int
 	artworkRows          []string
@@ -36,7 +37,7 @@ type album struct {
 	isPlaylist           bool
 	radio                bool
 	description          string
-	radioArtwork         <-chan *cover
+	radioArtwork         <-chan *audio.Cover
 }
 
 func scanLibrary(root string) ([]*album, error) {
@@ -89,27 +90,27 @@ func scanLibrary(root string) ([]*album, error) {
 		workers.Go(func() {
 			for i := range jobs {
 				path := files[i]
-				meta := readMetadata(path)
-				taggedAlbum := meta.album != ""
-				if meta.title == "" {
-					meta.title = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+				meta := audio.ReadMetadata(path)
+				taggedAlbum := meta.Album != ""
+				if meta.Title == "" {
+					meta.Title = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 				}
-				if meta.albumArtist == "" && taggedAlbum {
-					meta.albumArtist = meta.artist
+				if meta.AlbumArtist == "" && taggedAlbum {
+					meta.AlbumArtist = meta.Artist
 				}
-				if meta.artist == "" {
-					meta.artist = meta.albumArtist
+				if meta.Artist == "" {
+					meta.Artist = meta.AlbumArtist
 				}
-				if meta.artist == "" {
-					meta.artist = "Unknown artist"
+				if meta.Artist == "" {
+					meta.Artist = "Unknown artist"
 				}
 				if !taggedAlbum {
-					meta.album = filepath.Base(filepath.Dir(path))
+					meta.Album = filepath.Base(filepath.Dir(path))
 				}
 				tracks[i] = track{
-					path: path, title: meta.title, artist: meta.artist, album: meta.album,
-					albumArtist: meta.albumArtist, taggedAlbum: taggedAlbum, hasArtwork: meta.artwork,
-					likeID: likeKey(path), disc: meta.disc, number: meta.number, trackGain: meta.trackGain, albumGain: meta.albumGain,
+					path: path, title: meta.Title, artist: meta.Artist, album: meta.Album,
+					albumArtist: meta.AlbumArtist, taggedAlbum: taggedAlbum, hasArtwork: meta.Artwork,
+					likeID: likeKey(path), disc: meta.Disc, number: meta.Number, trackGain: meta.TrackGain, albumGain: meta.AlbumGain,
 				}
 			}
 		})
@@ -154,7 +155,7 @@ func scanLibrary(root string) ([]*album, error) {
 	return albums, nil
 }
 
-func (a *album) artwork(preferred track) *cover {
+func (a *album) artwork(preferred track) *audio.Cover {
 	if a.loaded {
 		return a.cover
 	}
@@ -164,21 +165,21 @@ func (a *album) artwork(preferred track) *cover {
 		for _, ext := range []string{".jpg", ".jpeg", ".png"} {
 			path := filepath.Join(folder, name+ext)
 			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-				if a.cover = readCover(path, false); a.cover != nil {
+				if a.cover = audio.ReadCover(path, false); a.cover != nil {
 					return a.cover
 				}
 			}
 		}
 	}
 	if preferred.hasArtwork {
-		a.cover = readCover(preferred.path, true)
+		a.cover = audio.ReadCover(preferred.path, true)
 	}
 	for _, t := range a.tracks {
 		if a.cover != nil {
 			break
 		}
 		if t.hasArtwork && t.path != preferred.path {
-			a.cover = readCover(t.path, true)
+			a.cover = audio.ReadCover(t.path, true)
 		}
 	}
 	return a.cover

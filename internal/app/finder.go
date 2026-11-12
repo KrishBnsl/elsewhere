@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/audio"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,7 +11,7 @@ type libraryFinder struct {
 	query   string
 	index   int
 	hits    []libraryHit
-	outputs []outputDevice
+	outputs []audio.OutputDevice
 }
 type libraryHit struct {
 	album *album
@@ -143,7 +144,7 @@ func (p *player) openOutput() {
 		p.notice = "Stop radio before switching output"
 		return
 	}
-	devices, err := outputDevices()
+	devices, err := audio.OutputDevices()
 	if err != nil {
 		p.notice = err.Error()
 		return
@@ -175,24 +176,24 @@ func (p *player) handleOutput(key string) {
 		f.index = min(len(f.outputs)-1, f.index+1)
 	case "\r", "\n":
 		d := f.outputs[f.index]
-		state := audioState()
+		state := audio.State()
 		p.cancelTransition()
-		if err := chooseOutput(d.ID); err != nil {
+		if err := audio.ChooseOutput(d.ID); err != nil {
 			p.notice = err.Error()
 			return
 		}
-		if switchOutputRestarts && p.localSong() != nil && !p.restored && !p.finished && !audioState().playing && (state.playing || state.duration > 0) {
+		if audio.SwitchOutputRestarts && p.localSong() != nil && !p.restored && !p.finished && !audio.State().Playing && (state.Playing || state.Duration > 0) {
 			t := p.current()
-			if err := startAudio(t.path, p.trackVolume(*t)); err != nil {
+			if err := audio.Start(t.path, p.trackVolume(*t)); err != nil {
 				p.notice = err.Error()
 				p.expected = false
 				return
 			}
-			if !state.playing {
-				pauseAudio()
+			if !state.Playing {
+				audio.Pause()
 			}
-			seekAudio(state.elapsed)
-			p.expected = state.playing
+			audio.Seek(state.Elapsed)
+			p.expected = state.Playing
 		}
 		p.finder = nil
 		p.notice = "Output · " + d.Name

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"elsewhere/internal/audio"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -64,7 +65,7 @@ func radioUpdates(ctx context.Context) <-chan liveTrackInfo {
 	return updates
 }
 
-func radioArtwork(ctx context.Context, client *http.Client, avatars *coverCache, info liveTrackInfo, avatar string) (*cover, string) {
+func radioArtwork(ctx context.Context, client *http.Client, avatars *coverCache, info liveTrackInfo, avatar string) (*audio.Cover, string) {
 	if info.artist != "" {
 		if art, _, err := onlineCover(ctx, info.title, info.artist); err == nil && art != nil {
 			return art, "cover:" + info.artist + "\x00" + info.title
@@ -81,7 +82,7 @@ func radioArtwork(ctx context.Context, client *http.Client, avatars *coverCache,
 	if err != nil {
 		return nil, ""
 	}
-	art := readCoverBytes(data)
+	art := audio.ReadCoverBytes(data)
 	if art != nil {
 		avatars.set(source, art)
 	}

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/audio"
 	"elsewhere/internal/fsutil"
 	"encoding/json"
 	"os"
@@ -19,11 +20,11 @@ type savedSession struct {
 func (p *player) saveSession() error {
 	s := savedSession{Library: p.path, Volume: p.volume, Repeat: p.repeat, Shuffle: p.shuffle, Gain: p.gain, Crossfade: p.crossfade, History: p.listenHistory}
 	if t := p.localSong(); t != nil {
-		s.Current, s.Position = t.path, p.state.elapsed
-		s.Duration = p.state.duration
+		s.Current, s.Position = t.path, p.state.Elapsed
+		s.Duration = p.state.Duration
 		if !p.restored {
-			state := audioState()
-			s.Position, s.Duration = state.elapsed, state.duration
+			state := audio.State()
+			s.Position, s.Duration = state.Elapsed, state.Duration
 			if p.finished {
 				s.Position = 0
 			}
@@ -80,7 +81,7 @@ func (p *player) restoreSession() {
 	}
 	// Defer opening the audio file until the listener presses Space.
 	p.active, p.playingIndex, p.restored = a, i, true
-	p.state.elapsed, p.state.duration = max(0, s.Position), max(0, s.Duration)
+	p.state.Elapsed, p.state.Duration = max(0, s.Position), max(0, s.Duration)
 	p.crossfade = s.Crossfade
 	p.notice = "Session restored · Space to resume"
 	p.fromQueue = s.FromQueue

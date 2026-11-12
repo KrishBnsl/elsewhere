@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"elsewhere/internal/audio"
 	"elsewhere/internal/kitty"
 	"elsewhere/internal/lyrics"
 	"fmt"
@@ -28,9 +29,9 @@ type player struct {
 	trackPane, searching, popup, visual   bool
 	expected, finished, analysisAvailable bool
 	active                                *album
-	state                                 playback
+	state                                 audio.Playback
 	volume, output, phase                 int
-	levels                                [bandCount]float32
+	levels                                [audio.BandCount]float32
 	nextAnalysis, nextOutput, nextMedia   time.Time
 	lyricsMode                            bool
 	lyricsPath                            string
@@ -129,7 +130,7 @@ func (p *player) start(a *album, i int) bool {
 	}
 	t := a.tracks[i]
 	p.cancelTransition()
-	if err := startAudio(t.path, p.trackVolume(t)); err != nil {
+	if err := audio.Start(t.path, p.trackVolume(t)); err != nil {
 		p.notice = fmt.Sprintf("Cannot play %s: %s", t.title, err)
 		return false
 	}
@@ -158,7 +159,7 @@ func (p *player) nowPlaying(a *album, i int) {
 		p.engine.tell("played", "path", t.path)
 	}
 	p.notice = ""
-	p.levels = [bandCount]float32{}
+	p.levels = [audio.BandCount]float32{}
 	p.nextAnalysis, p.nextMedia = time.Time{}, time.Time{}
 }
 
@@ -184,7 +185,7 @@ func (p *player) playSelection() {
 
 func (p *player) tick(now time.Time) {
 	p.tickFriends(now)
-	switch pollMediaControl() {
+	switch audio.PollMediaControl() {
 	case 1:
 		p.handlePlayback(" ")
 	case 2:
@@ -192,11 +193,11 @@ func (p *player) tick(now time.Time) {
 	case 3:
 		p.handlePlayback("p")
 	case 4:
-		if !p.jamTransport("play") && !audioState().playing {
+		if !p.jamTransport("play") && !audio.State().Playing {
 			p.handlePlayback(" ")
 		}
 	case 5:
-		if !p.jamTransport("pause") && audioState().playing {
+		if !p.jamTransport("pause") && audio.State().Playing {
 			p.handlePlayback(" ")
 		}
 	}
@@ -212,30 +213,30 @@ func (p *player) tick(now time.Time) {
 		p.publishMedia(now)
 		return
 	}
-	p.state = audioState()
+	p.state = audio.State()
 	p.prepareTransition()
 	if p.live != nil {
 		p.updateLive(now)
 	}
-	if !p.inJam() && p.expected && !p.state.playing {
+	if !p.inJam() && p.expected && !p.state.Playing {
 		p.expected, p.finished = false, true
 		if !p.active.radio && p.live == nil {
 			p.engineTell("finished")
 		}
 		if p.active.radio && p.radio != nil {
 			p.advanceRadio()
-		} else if p.nextPrepared && adoptNextAudio() {
+		} else if p.nextPrepared && audio.AdoptNext() {
 			p.nextPrepared = false
 			p.nowPlaying(p.active, p.playingIndex+1)
-			p.state = audioState()
+			p.state = audio.State()
 		} else if p.repeat == "track" && p.live == nil && !p.active.radio && p.start(p.active, p.playingIndex) {
-			p.state = audioState()
+			p.state = audio.State()
 		} else if p.advance() {
-			p.state = audioState()
+			p.state = audio.State()
 		}
 	}
 	if p.finished {
-		p.state.elapsed = p.state.duration
+		p.state.Elapsed = p.state.Duration
 	}
 	p.publishMedia(now)
 	if !p.popup || !p.lyricsMode || p.hiddenTrack() {
@@ -248,7 +249,7 @@ func (p *player) tick(now time.Time) {
 		return
 	}
 	if !now.Before(p.nextOutput) {
-		p.output = outputVolume()
+		p.output = audio.OutputVolume()
 		p.nextOutput = now.Add(500 * time.Millisecond)
 	}
 	if p.lyricsMode && !p.hiddenTrack() {
@@ -258,13 +259,13 @@ func (p *player) tick(now time.Time) {
 	if !p.visual && !p.hiddenTrack() {
 		return
 	}
-	if !p.state.playing {
-		p.levels = [bandCount]float32{}
+	if !p.state.Playing {
+		p.levels = [audio.BandCount]float32{}
 		return
 	}
 	if p.analysisAvailable && !now.Before(p.nextAnalysis) {
 		p.nextAnalysis = now.Add(75 * time.Millisecond)
-		levels, ok := readSpectrum(p.state.elapsed)
+		levels, ok := audio.Spectrum(p.state.Elapsed)
 		p.analysisAvailable = ok
 		for i, level := range levels {
 			p.levels[i] = max(level, p.levels[i]*0.77)
@@ -279,7 +280,7 @@ func (p *player) publishMedia(now time.Time) {
 		if p.hiddenTrack() {
 			display = track{path: "elsewhere:blind", title: "Mystery track"}
 		}
-		updateMediaControls(display, p.state)
+		audio.UpdateMediaControls(audio.MediaInfo{Path: display.path, Title: display.title, Artist: display.artist, Album: display.album}, p.state)
 		p.nextMedia = now.Add(time.Second)
 	}
 }
@@ -316,7 +317,7 @@ func (p *player) updateLyrics() {
 			query := lyrics.Query{Title: t.title, Artist: t.artist, Album: t.album, TaggedAlbum: t.taggedAlbum}
 			go func(duration float64) {
 				results <- lyrics.Online(ctx, query, duration)
-			}(p.state.duration)
+			}(p.state.Duration)
 		}
 	}
 	select {
@@ -475,9 +476,9 @@ func (p *player) handle(key string) bool {
 		p.cancelTransition()
 		p.volume = min(100, max(0, p.volume+delta))
 		if t := p.localSong(); t != nil {
-			setVolume(p.trackVolume(*t))
+			audio.SetVolume(p.trackVolume(*t))
 		} else {
-			setVolume(p.volume)
+			audio.SetVolume(p.volume)
 		}
 	}
 	return true
@@ -494,20 +495,20 @@ func (p *player) handlePlayback(key string) {
 		} else if p.active == nil {
 			p.playSelection()
 		} else if p.restored {
-			pos := p.state.elapsed
+			pos := p.state.Elapsed
 			if p.start(p.active, p.playingIndex) {
-				seekAudio(max(0, min(pos, audioState().duration-0.01)))
+				audio.Seek(max(0, min(pos, audio.State().Duration-0.01)))
 			}
-		} else if audioState().playing {
+		} else if audio.State().Playing {
 			p.cancelTransition()
-			pauseAudio()
+			audio.Pause()
 			p.expected = false
 			p.engineTell("pause")
 		} else {
 			if p.finished {
-				seekAudio(0)
+				audio.Seek(0)
 			}
-			p.expected = resumeAudio()
+			p.expected = audio.Resume()
 			if p.expected {
 				p.finished = false
 				p.engineTell("resume")
@@ -543,17 +544,17 @@ func (p *player) handleSeek(key string) {
 	if p.live != nil {
 		p.notice = "Live broadcast has no seek"
 	} else if p.active != nil && !p.restored {
-		state := audioState()
+		state := audio.State()
 		delta := 10.0
 		if key == "[" {
 			delta = -10
 		}
 		if p.finished {
-			state.elapsed = state.duration
+			state.Elapsed = state.Duration
 		}
-		to := max(0, min(state.elapsed+delta, state.duration-0.01))
+		to := max(0, min(state.Elapsed+delta, state.Duration-0.01))
 		p.cancelTransition()
-		seekAudio(to)
+		audio.Seek(to)
 		p.engine.tell("seek", "pos", to)
 		p.finished = false
 		p.nextAnalysis = time.Time{}
@@ -590,7 +591,7 @@ func (p *player) nextAlbumIndex(a *album, current int) int {
 
 func (p *player) cancelTransition() {
 	if p.nextPrepared {
-		cancelNextAudio()
+		audio.CancelNext()
 		p.nextPrepared = false
 	}
 }
@@ -602,20 +603,20 @@ func (p *player) prepareTransition() {
 		p.cancelTransition()
 		return
 	}
-	if !p.state.playing || p.nextPrepared {
+	if !p.state.Playing || p.nextPrepared {
 		return
 	}
-	remaining := p.state.duration - p.state.elapsed
+	remaining := p.state.Duration - p.state.Elapsed
 	overlap := 0.0
 	window := 1.0
-	if p.crossfade && crossfadeSupported {
+	if p.crossfade && audio.CrossfadeSupported {
 		overlap, window = 3, 3
 	}
 	if remaining > window || remaining <= 0 {
 		return
 	}
 	next := p.active.tracks[i]
-	if prepareNextAudio(next.path, p.trackVolume(next), overlap) {
+	if audio.PrepareNext(next.path, p.trackVolume(next), overlap) {
 		p.nextPrepared = true
 	}
 }

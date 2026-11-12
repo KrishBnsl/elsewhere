@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"elsewhere/internal/audio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,9 +43,9 @@ type radioSession struct {
 func (p *player) toggleRadio() {
 	if p.radio != nil {
 		if p.active != nil && p.active.radio {
-			stopAudio()
+			audio.Stop()
 			p.active, p.expected, p.finished, p.popup = nil, false, false, false
-			p.state = playback{}
+			p.state = audio.Playback{}
 		}
 		p.stopRadio()
 		p.notice = "Chiptune radio off"
@@ -108,7 +109,7 @@ func (p *player) playRadioHistory(index int) {
 	if p.start(p.radio.history[index], 0) {
 		p.radio.index = index
 		p.radio.wanted = false
-		p.state = audioState()
+		p.state = audio.State()
 	}
 }
 

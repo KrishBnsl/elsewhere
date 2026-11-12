@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"elsewhere/internal/audio"
 	"fmt"
 	"os"
 	"slices"
@@ -125,10 +126,10 @@ func (p *player) tickJam(now time.Time) {
 	if !p.inJam() {
 		if play.path != "" && p.current() != nil && p.current().path == play.path {
 			if play.received[play.track] == play.path {
-				stopAudio()
+				audio.Stop()
 				p.active = nil
 			} else {
-				pauseAudio()
+				audio.Pause()
 			}
 			p.expected = false
 		}
@@ -143,8 +144,8 @@ func (p *player) tickJam(now time.Time) {
 		play.checked = time.Time{}
 		if p.active != nil && p.active.radio {
 			p.stopStation()
-		} else if p.active != nil && audioState().playing {
-			pauseAudio()
+		} else if p.active != nil && audio.State().Playing {
+			audio.Pause()
 			p.expected = false
 		}
 	}
@@ -189,10 +190,10 @@ func (p *player) tickJam(now time.Time) {
 		play.waitingToPlay = false
 		if play.path != "" {
 			if play.received[play.track] == play.path {
-				stopAudio()
+				audio.Stop()
 				p.active = nil
-			} else if audioState().playing {
-				pauseAudio()
+			} else if audio.State().Playing {
+				audio.Pause()
 			}
 		}
 		p.expected = false
@@ -216,15 +217,15 @@ func (p *player) tickJam(now time.Time) {
 		wantPlay = wantPlay && path != ""
 	}
 	if !wantPlay {
-		if p.active != nil && audioState().playing {
-			pauseAudio()
+		if p.active != nil && audio.State().Playing {
+			audio.Pause()
 		}
 		p.expected = false
 		if play.track == entry.ID && play.path != "" && p.current() != nil && p.current().path == play.path && !p.finished {
-			state := audioState()
-			at := min(float64(position)/1000, max(0, state.duration-0.01))
-			if state.duration > 0 && (state.elapsed-at > 0.4 || at-state.elapsed > 0.4) {
-				seekAudio(at)
+			state := audio.State()
+			at := min(float64(position)/1000, max(0, state.Duration-0.01))
+			if state.Duration > 0 && (state.Elapsed-at > 0.4 || at-state.Elapsed > 0.4) {
+				audio.Seek(at)
 			}
 		}
 		if jam.Playing && position >= entry.Duration && now.Sub(play.synced) < 6*time.Second &&
@@ -260,14 +261,14 @@ func (p *player) tickJam(now time.Time) {
 		p.melisma, p.popup = false, true
 		p.tripDestination, p.tripDetour = "", false
 		play.path, play.track = path, entry.ID
-		seekAudio(at)
+		audio.Seek(at)
 	} else {
-		state := audioState()
-		if at-state.elapsed > 0.8 || state.elapsed-at > 0.8 {
-			seekAudio(min(at, max(0, state.duration-0.01)))
+		state := audio.State()
+		if at-state.Elapsed > 0.8 || state.Elapsed-at > 0.8 {
+			audio.Seek(min(at, max(0, state.Duration-0.01)))
 		}
-		if !state.playing {
-			if !resumeAudio() {
+		if !state.Playing {
+			if !audio.Resume() {
 				// Some backends discard a source at EOF. Reopen it if the host seeks back.
 				play.track = ""
 				return

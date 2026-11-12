@@ -34,11 +34,11 @@ func TestRadioGameArtwork(t *testing.T) {
 	}))
 	defer server.Close()
 	art := radioGameArtwork(context.Background(), server.Client(), server.URL, song)
-	if art == nil || art.pixels[0][0] != [4]byte{255, 0, 0, 255} {
+	if art == nil || art.Pixels[0][0] != [4]byte{255, 0, 0, 255} {
 		t.Fatal("game artwork did not decode")
 	}
 	fallback := radioStationArtwork()
-	if fallback == nil || len(fallback.png) == 0 || fallback.pixels[0][0] == fallback.pixels[24][24] {
+	if fallback == nil || len(fallback.PNG) == 0 || fallback.Pixels[0][0] == fallback.Pixels[24][24] {
 		t.Fatal("station artwork is missing")
 	}
 }

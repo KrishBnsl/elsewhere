@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/audio"
 	"fmt"
 	"sort"
 	"strings"
@@ -245,7 +246,7 @@ func (p *player) runSlashCommand(command string, prompt searchPrompt) bool {
 		p.shuffledAlbum = nil
 		p.notice = fmt.Sprintf("Shuffle · %t", p.shuffle)
 	case "crossfade":
-		if !crossfadeSupported {
+		if !audio.CrossfadeSupported {
 			p.notice = "Crossfade requires native macOS audio"
 			break
 		}
@@ -256,7 +257,7 @@ func (p *player) runSlashCommand(command string, prompt searchPrompt) bool {
 		p.cancelTransition()
 		p.gain = nextMode(p.gain)
 		if t := p.localSong(); t != nil && !p.restored {
-			setVolume(p.trackVolume(*t))
+			audio.SetVolume(p.trackVolume(*t))
 		}
 		p.notice = "ReplayGain · " + p.gain
 	case "radio":

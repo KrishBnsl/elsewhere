@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"elsewhere/internal/audio"
 	"elsewhere/internal/fsutil"
 	"fmt"
 	"image"
@@ -42,8 +43,8 @@ func TestDownloadedCoverDecoding(t *testing.T) {
 	if err := png.Encode(&data, picture); err != nil {
 		t.Fatal(err)
 	}
-	art := readCoverBytes(data.Bytes())
-	if art == nil || art.pixels[0][0] != [4]byte{255, 0, 0, 255} {
+	art := audio.ReadCoverBytes(data.Bytes())
+	if art == nil || art.Pixels[0][0] != [4]byte{255, 0, 0, 255} {
 		t.Fatal("downloaded image did not render as red cover art")
 	}
 }
@@ -68,7 +69,7 @@ func TestCoverDownloadRetriesServerFailure(t *testing.T) {
 	if err != nil || art == nil || attempts != 2 {
 		t.Fatalf("download failed after %d attempts: %v", attempts, err)
 	}
-	config, err := png.DecodeConfig(bytes.NewReader(art.png))
+	config, err := png.DecodeConfig(bytes.NewReader(art.PNG))
 	if err != nil || config.Width != 300 || config.Height != 300 {
 		t.Fatalf("native cover dimensions = %dx%d: %v", config.Width, config.Height, err)
 	}

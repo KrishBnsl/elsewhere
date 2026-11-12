@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/audio"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ type listenEntry struct {
 const maxListenHistory = 4096
 
 func (p *player) rememberTrack(t track) {
-	p.listenHistory = append(p.listenHistory, listenEntry{t.path, time.Now(), audioState().duration})
+	p.listenHistory = append(p.listenHistory, listenEntry{t.path, time.Now(), audio.State().Duration})
 	if len(p.listenHistory) > maxListenHistory {
 		p.listenHistory = p.listenHistory[1:]
 	}

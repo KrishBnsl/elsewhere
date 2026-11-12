@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"elsewhere/internal/audio"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -16,7 +17,7 @@ import (
 	"time"
 )
 
-func radioGameArtwork(ctx context.Context, client *http.Client, origin, file string) *cover {
+func radioGameArtwork(ctx context.Context, client *http.Client, origin, file string) *audio.Cover {
 	query := url.Values{"path": {file}}
 	data, err := radioGet(ctx, client, origin+"/api/metadata?"+query.Encode(), 1<<20)
 	if err != nil {
@@ -38,14 +39,14 @@ func radioGameArtwork(ctx context.Context, client *http.Client, origin, file str
 	if err != nil {
 		return nil
 	}
-	return readCoverBytes(data)
+	return audio.ReadCoverBytes(data)
 }
 
-func requestRadioArtwork(ctx context.Context, file string) <-chan *cover {
+func requestRadioArtwork(ctx context.Context, file string) <-chan *audio.Cover {
 	if file == "" {
 		return nil
 	}
-	result := make(chan *cover, 1)
+	result := make(chan *audio.Cover, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -54,7 +55,7 @@ func requestRadioArtwork(ctx context.Context, file string) <-chan *cover {
 	return result
 }
 
-var radioStationArtwork = sync.OnceValue(func() *cover {
+var radioStationArtwork = sync.OnceValue(func() *audio.Cover {
 	const scale = 8
 	img := image.NewRGBA(image.Rect(0, 0, 48*scale, 48*scale))
 	rect := func(x, y, w, h int, rgb uint32) {
@@ -98,7 +99,7 @@ var radioStationArtwork = sync.OnceValue(func() *cover {
 	if png.Encode(&data, img) != nil {
 		return nil
 	}
-	return readCoverBytes(data.Bytes())
+	return audio.ReadCoverBytes(data.Bytes())
 })
 
 func (a *album) updateRadioArtwork() {

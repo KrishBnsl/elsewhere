@@ -214,7 +214,7 @@ func (p *player) ruleRow(columns int) string {
 	current := p.current()
 	type voter struct{ name, label, color string }
 	var voters []voter
-	label, color := verdict(p.state.playing, current != nil)
+	label, color := verdict(p.state.Playing, current != nil)
 	voters = append(voters, voter{"MELCHIOR·1", label, color})
 	label, color = verdict(current != nil && p.likes.contains(current.likeID), current != nil)
 	voters = append(voters, voter{"BALTHASAR·2", label, color})

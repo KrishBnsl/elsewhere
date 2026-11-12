@@ -1,6 +1,7 @@
 package app
 
 import (
+	"elsewhere/internal/audio"
 	"path/filepath"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestRestoreQueuedSessionAndFinder(t *testing.T) {
 		path: "/music", sessionPath: filepath.Join(t.TempDir(), "session.json"),
 		albums: []*album{a}, likedSongs: &album{title: "Liked Songs"},
 		active: a, restored: true, volume: 55, repeat: "album",
-		state: playback{elapsed: 12.5, duration: 120},
+		state: audio.Playback{Elapsed: 12.5, Duration: 120},
 	}
 	p.enqueue(a.tracks, false)
 	p.enqueue(a.tracks[1:], true)
@@ -24,7 +25,7 @@ func TestRestoreQueuedSessionAndFinder(t *testing.T) {
 	}
 	p.active, p.queue, p.restored, p.volume = nil, nil, false, 70
 	p.restoreSession()
-	if !p.restored || p.active != a || p.state.elapsed != 12.5 || p.volume != 55 || p.repeat != "album" {
+	if !p.restored || p.active != a || p.state.Elapsed != 12.5 || p.volume != 55 || p.repeat != "album" {
 		t.Fatalf("incorrect session restore: %#v", p)
 	}
 	if len(p.queue) != 2 || p.queue[0].path != "/two" || p.queue[1].path != "/one" {

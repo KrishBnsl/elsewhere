@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"elsewhere/internal/audio"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -41,17 +42,17 @@ type liveRadio struct {
 type liveTrackInfo struct {
 	title, artist, album, artPath string
 	artPaths                      []string
-	art                           *cover
+	art                           *audio.Cover
 }
 
 // coverCache remembers the most recent artwork a feed fetched, keyed by its source URL.
 type coverCache struct {
 	mu  sync.Mutex
 	key string
-	art *cover
+	art *audio.Cover
 }
 
-func (c *coverCache) get(key string) *cover {
+func (c *coverCache) get(key string) *audio.Cover {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.key == key {
@@ -60,7 +61,7 @@ func (c *coverCache) get(key string) *cover {
 	return nil
 }
 
-func (c *coverCache) set(key string, art *cover) {
+func (c *coverCache) set(key string, art *audio.Cover) {
 	c.mu.Lock()
 	c.key, c.art = key, art
 	c.mu.Unlock()
@@ -97,7 +98,7 @@ func (p *player) tuneStation(station radioStation) {
 		p.popup = true
 		return
 	}
-	if !startLiveAudio(station.stream, p.volume) {
+	if !audio.StartLive(station.stream, p.volume) {
 		p.notice = "Could not open " + station.name
 		return
 	}
@@ -116,7 +117,7 @@ func (p *player) tuneStation(station radioStation) {
 	a := &album{title: station.name, radio: true, cover: radioStationArtwork()}
 	a.tracks = []track{{title: station.name, artist: station.provider, album: station.description, source: a, radioFormat: "LIVE"}}
 	p.active, p.playingIndex, p.restored = a, 0, false
-	p.state = playback{}
+	p.state = audio.Playback{}
 	p.expected, p.finished, p.analysisAvailable = false, false, false
 	p.popup, p.lyricsMode = true, false
 	p.notice = "Connecting to " + station.provider + "..."
@@ -131,9 +132,9 @@ func (p *player) clearLiveStation() {
 
 func (p *player) stopStation() {
 	if p.active != nil && p.active.radio {
-		stopAudio()
+		audio.Stop()
 		p.active, p.expected, p.finished, p.popup = nil, false, false, false
-		p.state = playback{}
+		p.state = audio.Playback{}
 	}
 	p.stopRadio()
 	p.clearLiveStation()
@@ -146,7 +147,7 @@ func (p *player) toggleLivePlayback() {
 		p.pauseLive()
 		return
 	}
-	if startLiveAudio(live.station.stream, p.volume) {
+	if audio.StartLive(live.station.stream, p.volume) {
 		live.paused = false
 		live.connecting = time.Now().Add(10 * time.Second)
 		live.retried = false
@@ -157,7 +158,7 @@ func (p *player) toggleLivePlayback() {
 }
 
 func (p *player) pauseLive() {
-	pauseAudio()
+	audio.Pause()
 	p.live.paused = true
 	p.live.connecting = time.Time{}
 	p.notice = ""
@@ -167,7 +168,7 @@ func (p *player) liveStatus() string {
 	switch {
 	case p.live.paused:
 		return "PAUSED"
-	case p.state.playing:
+	case p.state.Playing:
 		return "ON AIR"
 	case !p.live.connecting.IsZero():
 		return "CONNECTING"
@@ -179,7 +180,7 @@ func (p *player) liveStatus() string {
 func (p *player) updateLive(now time.Time) {
 	live := p.live
 	if !live.paused {
-		switch liveAudioStatus() {
+		switch audio.LiveStatus() {
 		case 1:
 			if !live.connecting.IsZero() {
 				live.connecting = time.Time{}
@@ -243,7 +244,7 @@ func (p *player) retryLive(now time.Time, reason string) {
 		if stream == "" {
 			stream = live.station.stream
 		}
-		if startLiveAudio(stream, p.volume) {
+		if audio.StartLive(stream, p.volume) {
 			live.connecting = now.Add(10 * time.Second)
 			p.notice = "Retrying " + live.station.provider + "..."
 			return
@@ -289,7 +290,7 @@ func rainwaveNowPlaying(ctx context.Context, client *http.Client, origin string,
 	info.artPath = artPath
 	if artPath != knownArt {
 		if bytes, err := radioGet(ctx, client, origin+artPath+"_320.jpg", maxCoverBytes); err == nil {
-			info.art = readCoverBytes(bytes)
+			info.art = audio.ReadCoverBytes(bytes)
 		}
 	}
 	return info

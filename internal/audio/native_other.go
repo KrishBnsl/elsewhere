@@ -1,12 +1,13 @@
 //go:build !darwin || dhunn_audio
 
-package app
+package audio
 
 // Audio on Linux and Windows: Melisma's `dhunn audio` plays files and streams, measures the
 // spectrum and reads tags and embedded covers, so Elsewhere needs no system audio code here.
 
 import (
 	"bufio"
+	"elsewhere/internal/melisma"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -49,17 +50,17 @@ type audioReply struct {
 	AlbumGain   string         `json:"album_gain"`
 	Action      int            `json:"action"`
 	Adopted     bool           `json:"adopted"`
-	Devices     []outputDevice `json:"devices"`
+	Devices     []OutputDevice `json:"devices"`
 }
 
 func (s *audioServer) start() {
-	path, err := engineCommand()
+	path, err := melisma.Command()
 	if err != nil {
 		s.err = errors.New("Elsewhere plays sound through Melisma here, and " + err.Error())
 		return
 	}
 	cmd := exec.Command(path, "audio")
-	if f := logFile("audio.log"); f != nil {
+	if f := melisma.LogFile("audio.log"); f != nil {
 		cmd.Stderr = f
 	}
 	stdin, err := cmd.StdinPipe()
@@ -107,17 +108,17 @@ func (s *audioServer) call(request map[string]any) (audioReply, error) {
 	return reply, nil
 }
 
-func readNativeMetadata(path string) tags {
+func readNativeMetadata(path string) Tags {
 	r, err := sound.call(map[string]any{"op": "metadata", "path": path})
 	if err != nil {
-		return tags{}
+		return Tags{}
 	}
-	return tags{title: strings.TrimSpace(r.Title), artist: strings.TrimSpace(r.Artist), album: strings.TrimSpace(r.Album),
-		albumArtist: strings.TrimSpace(r.AlbumArtist), artwork: r.Artwork, disc: tagNumber(r.Disc), number: tagNumber(r.Number),
-		trackGain: tagGain(r.TrackGain), albumGain: tagGain(r.AlbumGain)}
+	return Tags{Title: strings.TrimSpace(r.Title), Artist: strings.TrimSpace(r.Artist), Album: strings.TrimSpace(r.Album),
+		AlbumArtist: strings.TrimSpace(r.AlbumArtist), Artwork: r.Artwork, Disc: tagNumber(r.Disc), Number: tagNumber(r.Number),
+		TrackGain: tagGain(r.TrackGain), AlbumGain: tagGain(r.AlbumGain)}
 }
 
-func readCover(path string, embedded bool) *cover {
+func ReadCover(path string, embedded bool) *Cover {
 	if !embedded {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -136,24 +137,24 @@ func readCover(path string, embedded bool) *cover {
 	return renderCover(data)
 }
 
-func readCoverBytes(data []byte) *cover {
+func ReadCoverBytes(data []byte) *Cover {
 	if len(data) == 0 {
 		return nil
 	}
 	return renderCover(data)
 }
 
-func startAudio(path string, volume int) error {
+func Start(path string, volume int) error {
 	_, err := sound.call(map[string]any{"op": "start", "path": path, "volume": float64(volume) / 100})
 	return err
 }
 
-func startLiveAudio(address string, volume int) bool {
+func StartLive(address string, volume int) bool {
 	_, err := sound.call(map[string]any{"op": "live", "url": address, "volume": float64(volume) / 100})
 	return err == nil
 }
 
-func liveAudioStatus() int {
+func LiveStatus() int {
 	r, err := sound.call(map[string]any{"op": "live_status"})
 	if err != nil {
 		return -1
@@ -168,42 +169,42 @@ func (s *audioServer) started() bool {
 	return s.cmd != nil || s.err != nil
 }
 
-func audioState() playback {
+func State() Playback {
 	if !sound.started() {
-		return playback{} // Nothing has played yet: no need to start the player.
+		return Playback{} // Nothing has played yet: no need to start the player.
 	}
 	r, err := sound.call(map[string]any{"op": "state"})
 	if err != nil {
-		return playback{}
+		return Playback{}
 	}
-	return playback{r.Elapsed, r.Duration, r.Playing}
+	return Playback{r.Elapsed, r.Duration, r.Playing}
 }
 
-func resumeAudio() bool {
+func Resume() bool {
 	_, err := sound.call(map[string]any{"op": "resume"})
 	return err == nil
 }
 
-func pauseAudio() { sound.call(map[string]any{"op": "pause"}) }
+func Pause() { sound.call(map[string]any{"op": "pause"}) }
 
-func stopAudio() {
+func Stop() {
 	if sound.started() {
 		sound.call(map[string]any{"op": "stop"})
 	}
 }
 
-func seekAudio(at float64) { sound.call(map[string]any{"op": "seek", "to": at}) }
+func Seek(at float64) { sound.call(map[string]any{"op": "seek", "to": at}) }
 
-func setVolume(value int) {
+func SetVolume(value int) {
 	sound.call(map[string]any{"op": "volume", "volume": float64(value) / 100})
 }
 
 // outputVolume is the system's own volume: only known on macOS.
-func outputVolume() int { return -1 }
+func OutputVolume() int { return -1 }
 
-func readSpectrum(at float64) ([bandCount]float32, bool) {
-	var levels [bandCount]float32
-	r, err := sound.call(map[string]any{"op": "spectrum", "bands": bandCount})
+func Spectrum(at float64) ([BandCount]float32, bool) {
+	var levels [BandCount]float32
+	r, err := sound.call(map[string]any{"op": "spectrum", "bands": BandCount})
 	if err != nil {
 		return levels, false
 	}
@@ -211,48 +212,48 @@ func readSpectrum(at float64) ([bandCount]float32, bool) {
 	return levels, true
 }
 
-func outputDevices() ([]outputDevice, error) {
+func OutputDevices() ([]OutputDevice, error) {
 	reply, err := sound.call(map[string]any{"op": "devices"})
 	return reply.Devices, err
 }
-func chooseOutput(id string) error {
+func ChooseOutput(id string) error {
 	_, err := sound.call(map[string]any{"op": "output", "id": id})
 	return err
 }
-func startMediaControls() {
+func StartMediaControls() {
 	if runtime.GOOS != "darwin" {
 		_, err := sound.call(map[string]any{"op": "media_start"})
 		mediaEnabled = err == nil
 	}
 }
-func stopMediaControls() {
+func StopMediaControls() {
 	if mediaEnabled {
 		sound.call(map[string]any{"op": "media_stop"})
 	}
 }
-func pollMediaControl() int {
+func PollMediaControl() int {
 	if !mediaEnabled {
 		return 0
 	}
 	r, _ := sound.call(map[string]any{"op": "media_poll"})
 	return r.Action
 }
-func updateMediaControls(t track, s playback) {
+func UpdateMediaControls(m MediaInfo, s Playback) {
 	if mediaEnabled {
-		sound.call(map[string]any{"op": "media_update", "path": t.path, "title": t.title, "artist": t.artist,
-			"album": t.album, "elapsed": s.elapsed, "duration": s.duration, "playing": s.playing})
+		sound.call(map[string]any{"op": "media_update", "path": m.Path, "title": m.Title, "artist": m.Artist,
+			"album": m.Album, "elapsed": s.Elapsed, "duration": s.Duration, "playing": s.Playing})
 	}
 }
 
-const switchOutputRestarts = true
-const crossfadeSupported = false
+const SwitchOutputRestarts = true
+const CrossfadeSupported = false
 
-func prepareNextAudio(path string, volume int, _ float64) bool {
+func PrepareNext(path string, volume int, _ float64) bool {
 	_, err := sound.call(map[string]any{"op": "prepare_next", "path": path, "volume": float64(volume) / 100})
 	return err == nil
 }
-func cancelNextAudio() { sound.call(map[string]any{"op": "cancel_next"}) }
-func adoptNextAudio() bool {
+func CancelNext() { sound.call(map[string]any{"op": "cancel_next"}) }
+func AdoptNext() bool {
 	r, _ := sound.call(map[string]any{"op": "adopt_next"})
 	return r.Adopted
 }

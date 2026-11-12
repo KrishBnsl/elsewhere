@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"elsewhere/internal/audio"
 	"encoding/binary"
 	"net/http"
 	"net/http/httptest"
@@ -49,7 +50,7 @@ func TestRadioPreviousAndForwardUseHistory(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	p := &player{radio: &radioSession{ctx: ctx, cancel: cancel}}
 	t.Cleanup(func() {
-		stopAudio()
+		audio.Stop()
 		p.stopRadio()
 	})
 

@@ -16,7 +16,7 @@ func TestEveryThemeKeepsRowsAlignedAndDistinct(t *testing.T) {
 	t.Cleanup(func() { applyTheme(&themes[0]) })
 	p, a, _ := queueFixture(t)
 	p.active, p.playingIndex = a, 0
-	p.state.playing = true
+	p.state.Playing = true
 	p.queue = []track{a.tracks[1]}
 	seen := map[string]string{}
 	for i := range themes {
@@ -54,7 +54,7 @@ func TestMagiShowsThreeVerdicts(t *testing.T) {
 			t.Fatalf("idle strip missing %q: %q", want, line)
 		}
 	}
-	p.active, p.state.playing = a, true
+	p.active, p.state.Playing = a, true
 	p.queue = []track{a.tracks[1]}
 	line = visible(p.ruleRow(100))
 	for _, want := range []string{"MELCHIOR·1 承認", "BALTHASAR·2 保留", "CASPER·3 承認"} {

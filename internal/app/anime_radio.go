@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"elsewhere/internal/audio"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -119,7 +120,7 @@ func readListenUpdates(ctx context.Context, updates chan<- liveTrackInfo) {
 
 // fetchListenArt tries each candidate in order, retrying once so a transient CDN failure
 // does not leave the station without a cover.
-func fetchListenArt(ctx context.Context, client *http.Client, candidates []string) (string, *cover) {
+func fetchListenArt(ctx context.Context, client *http.Client, candidates []string) (string, *audio.Cover) {
 	for _, candidate := range candidates {
 		for attempt := range 2 {
 			if ctx.Err() != nil {
@@ -138,7 +139,7 @@ func fetchListenArt(ctx context.Context, client *http.Client, candidates []strin
 			if err != nil {
 				continue
 			}
-			if art := readCoverBytes(data); art != nil {
+			if art := audio.ReadCoverBytes(data); art != nil {
 				return candidate, art
 			}
 			break

@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/sha256"
+	"elsewhere/internal/audio"
 	"elsewhere/internal/console"
 	"elsewhere/internal/kitty"
 	"elsewhere/internal/update"
@@ -54,13 +55,13 @@ func runTerminal(p *player) error {
 	defer p.stopRadio()
 	defer p.clearLiveStation()
 	defer p.social.jam.clearAudio()
-	defer stopAudio()
-	startMediaControls()
-	defer stopMediaControls()
+	defer audio.Stop()
+	audio.StartMediaControls()
+	defer audio.StopMediaControls()
 	defer p.stopLyricsLookup()
 	defer p.stopCoverLookup()
 	// Runs first: tell Melisma where the song was left while it's still playing.
-	defer func() { p.engine.close(audioState().elapsed) }()
+	defer func() { p.engine.close(audio.State().Elapsed) }()
 	defer func() {
 		if err := p.saveSession(); err != nil {
 			fmt.Fprintln(os.Stderr, "Save session:", err)
@@ -134,9 +135,9 @@ func runTerminal(p *player) error {
 		timeout := 150
 		if len(pending) > 0 {
 			timeout = 35
-		} else if p.popup && p.lyricsMode && p.state.playing {
+		} else if p.popup && p.lyricsMode && p.state.Playing {
 			timeout = 75
-		} else if p.popup && p.visual && p.state.playing && p.analysisAvailable {
+		} else if p.popup && p.visual && p.state.Playing && p.analysisAvailable {
 			timeout = max(1, int((time.Until(p.nextAnalysis)+time.Millisecond-1)/time.Millisecond))
 		}
 		ready := false

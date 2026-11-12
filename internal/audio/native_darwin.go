@@ -1,6 +1,6 @@
 //go:build darwin && !dhunn_audio
 
-package app
+package audio
 
 /*
 #cgo CFLAGS: -fobjc-arc -Wno-deprecated-declarations
@@ -22,7 +22,7 @@ import (
 // AppKit and its event loop must stay on the original OS thread.
 func init() { runtime.LockOSThread() }
 
-func readNativeMetadata(path string) tags {
+func readNativeMetadata(path string) Tags {
 	filename := C.CString(path)
 	defer C.free(unsafe.Pointer(filename))
 	native := C.audio_metadata(filename)
@@ -30,39 +30,39 @@ func readNativeMetadata(path string) tags {
 		defer C.free(unsafe.Pointer(value))
 		return strings.TrimSpace(C.GoString(value))
 	}
-	return tags{title: take(native.title), artist: take(native.artist), album: take(native.album),
-		albumArtist: take(native.albumArtist), artwork: native.artwork != 0, disc: int(native.disc), number: int(native.number),
-		trackGain: tagGain(take(native.trackGain)), albumGain: tagGain(take(native.albumGain))}
+	return Tags{Title: take(native.title), Artist: take(native.artist), Album: take(native.album),
+		AlbumArtist: take(native.albumArtist), Artwork: native.artwork != 0, Disc: int(native.disc), Number: int(native.number),
+		TrackGain: tagGain(take(native.trackGain)), AlbumGain: tagGain(take(native.albumGain))}
 }
 
 // audio.h's coverSize must match the one in audio.go.
-const _ = uint(coverSize-C.coverSize) + uint(C.coverSize-coverSize)
+const _ = uint(CoverSize-C.coverSize) + uint(C.coverSize-CoverSize)
 
-func readCover(path string, embedded bool) *cover {
+func ReadCover(path string, embedded bool) *Cover {
 	filename := C.CString(path)
 	defer C.free(unsafe.Pointer(filename))
-	var art cover
+	var art Cover
 	var png *C.uchar
 	var size C.size_t
-	if C.audio_artwork(filename, flag(embedded), (*C.uchar)(unsafe.Pointer(&art.pixels)), &png, &size) == 0 {
+	if C.audio_artwork(filename, flag(embedded), (*C.uchar)(unsafe.Pointer(&art.Pixels)), &png, &size) == 0 {
 		return nil
 	}
-	art.png = takeCoverPNG(png, size)
+	art.PNG = takeCoverPNG(png, size)
 	return &art
 }
 
-func readCoverBytes(data []byte) *cover {
+func ReadCoverBytes(data []byte) *Cover {
 	if len(data) == 0 {
 		return nil
 	}
-	var art cover
+	var art Cover
 	var png *C.uchar
 	var size C.size_t
 	if C.audio_artwork_bytes((*C.uchar)(unsafe.Pointer(&data[0])), C.size_t(len(data)),
-		(*C.uchar)(unsafe.Pointer(&art.pixels)), &png, &size) == 0 {
+		(*C.uchar)(unsafe.Pointer(&art.Pixels)), &png, &size) == 0 {
 		return nil
 	}
-	art.png = takeCoverPNG(png, size)
+	art.PNG = takeCoverPNG(png, size)
 	return &art
 }
 
@@ -81,7 +81,7 @@ func flag(value bool) C.int {
 	return 0
 }
 
-func startAudio(path string, volume int) error {
+func Start(path string, volume int) error {
 	filename := C.CString(path)
 	defer C.free(unsafe.Pointer(filename))
 	if message := C.audio_start(filename, C.float(volume)/100); message != nil {
@@ -91,44 +91,44 @@ func startAudio(path string, volume int) error {
 	return nil
 }
 
-func startLiveAudio(address string, volume int) bool {
+func StartLive(address string, volume int) bool {
 	url := C.CString(address)
 	defer C.free(unsafe.Pointer(url))
 	return C.audio_start_live(url, C.float(volume)/100) != 0
 }
 
-func liveAudioStatus() int { return int(C.audio_live_status()) }
+func LiveStatus() int { return int(C.audio_live_status()) }
 
-func audioState() playback {
+func State() Playback {
 	state := C.audio_state()
-	return playback{float64(state.elapsed), float64(state.duration), state.playing != 0}
+	return Playback{float64(state.elapsed), float64(state.duration), state.playing != 0}
 }
 
-func resumeAudio() bool    { return C.audio_resume() != 0 }
-func pauseAudio()          { C.audio_pause() }
-func stopAudio()           { C.audio_stop() }
-func seekAudio(at float64) { C.audio_seek(C.double(at)) }
-func setVolume(value int)  { C.audio_volume(C.float(value) / 100) }
-func outputVolume() int    { return int(C.audio_output_volume()) }
+func Resume() bool        { return C.audio_resume() != 0 }
+func Pause()              { C.audio_pause() }
+func Stop()               { C.audio_stop() }
+func Seek(at float64)     { C.audio_seek(C.double(at)) }
+func SetVolume(value int) { C.audio_volume(C.float(value) / 100) }
+func OutputVolume() int   { return int(C.audio_output_volume()) }
 
-func readSpectrum(at float64) ([bandCount]float32, bool) {
-	var levels [bandCount]float32
+func Spectrum(at float64) ([BandCount]float32, bool) {
+	var levels [BandCount]float32
 	ok := C.audio_spectrum(C.double(at), (*C.float)(unsafe.Pointer(&levels))) != 0
 	return levels, ok
 }
 
-func outputDevices() ([]outputDevice, error) {
+func OutputDevices() ([]OutputDevice, error) {
 	raw := C.audio_devices()
 	if raw == nil {
 		return nil, errors.New("Cannot list system outputs")
 	}
 	defer C.free(unsafe.Pointer(raw))
-	var devices []outputDevice
+	var devices []OutputDevice
 	err := json.Unmarshal([]byte(C.GoString(raw)), &devices)
 	return devices, err
 }
 
-func chooseOutput(id string) error {
+func ChooseOutput(id string) error {
 	n, err := strconv.ParseUint(id, 10, 32)
 	if err != nil || C.audio_select_device(C.uint(n)) == 0 {
 		return errors.New("Cannot switch system output")
@@ -136,24 +136,24 @@ func chooseOutput(id string) error {
 	return nil
 }
 
-func startMediaControls()   { C.audio_media_start() }
-func stopMediaControls()    { C.audio_media_stop() }
-func pollMediaControl() int { return int(C.audio_media_poll()) }
-func updateMediaControls(t track, s playback) {
-	title, artist, album := C.CString(t.title), C.CString(t.artist), C.CString(t.album)
+func StartMediaControls()   { C.audio_media_start() }
+func StopMediaControls()    { C.audio_media_stop() }
+func PollMediaControl() int { return int(C.audio_media_poll()) }
+func UpdateMediaControls(m MediaInfo, s Playback) {
+	title, artist, album := C.CString(m.Title), C.CString(m.Artist), C.CString(m.Album)
 	defer C.free(unsafe.Pointer(title))
 	defer C.free(unsafe.Pointer(artist))
 	defer C.free(unsafe.Pointer(album))
-	C.audio_media_update(title, artist, album, C.double(s.elapsed), C.double(s.duration), flag(s.playing))
+	C.audio_media_update(title, artist, album, C.double(s.Elapsed), C.double(s.Duration), flag(s.Playing))
 }
 
-const switchOutputRestarts = false
-const crossfadeSupported = true
+const SwitchOutputRestarts = false
+const CrossfadeSupported = true
 
-func prepareNextAudio(path string, volume int, overlap float64) bool {
+func PrepareNext(path string, volume int, overlap float64) bool {
 	name := C.CString(path)
 	defer C.free(unsafe.Pointer(name))
 	return C.audio_prepare_next(name, C.float(volume)/100, C.double(overlap)) != 0
 }
-func cancelNextAudio()     { C.audio_cancel_next() }
-func adoptNextAudio() bool { return C.audio_adopt_next() != 0 }
+func CancelNext()     { C.audio_cancel_next() }
+func AdoptNext() bool { return C.audio_adopt_next() != 0 }

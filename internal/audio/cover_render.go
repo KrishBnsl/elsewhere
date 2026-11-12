@@ -1,6 +1,6 @@
 //go:build !darwin || dhunn_audio
 
-package app
+package audio
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ const coverMaxSide = 512
 
 // renderCover turns an image file's bytes into a cover: the whole picture squeezed into the
 // small square, and a PNG of it at most coverMaxSide pixels across. JPEG, PNG and GIF.
-func renderCover(data []byte) *cover {
+func renderCover(data []byte) *Cover {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil
@@ -28,8 +28,8 @@ func renderCover(data []byte) *cover {
 	rgba := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
 	draw.Draw(rgba, rgba.Bounds(), img, b.Min, draw.Src)
 
-	var art cover
-	shrinkInto(rgba, coverSize, coverSize, func(x, y int, c [4]byte) { art.pixels[y][x] = c })
+	var art Cover
+	shrinkInto(rgba, CoverSize, CoverSize, func(x, y int, c [4]byte) { art.Pixels[y][x] = c })
 
 	w, h := b.Dx(), b.Dy()
 	if side := max(w, h); side > coverMaxSide {
@@ -41,7 +41,7 @@ func renderCover(data []byte) *cover {
 	})
 	var out bytes.Buffer
 	if png.Encode(&out, thumb) == nil {
-		art.png = out.Bytes()
+		art.PNG = out.Bytes()
 	}
 	return &art
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/sha256"
+	"elsewhere/internal/audio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -102,7 +103,7 @@ func (p *player) toggleLike() {
 		if p.likes.contains(target.likeID) {
 			p.engine.tell("unlike", "path", target.path)
 		} else {
-			p.engine.steer("like", target.path, audioState().elapsed)
+			p.engine.steer("like", target.path, audio.State().Elapsed)
 		}
 	}
 	if err := p.likes.toggle(target.likeID); err != nil {

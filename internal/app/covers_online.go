@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"elsewhere/internal/audio"
 	"elsewhere/internal/fsutil"
 	"encoding/json"
 	"errors"
@@ -41,7 +42,7 @@ type coverLookup struct {
 }
 
 type coverResult struct {
-	art      *cover
+	art      *audio.Cover
 	filename string
 	err      error
 }
@@ -119,11 +120,11 @@ func (p *player) answerCoverPrompt(accept bool) {
 	}(a.title, a.artist, filepath.Dir(t.path))
 }
 
-func saveAlbumCover(folder string, art *cover, data []byte) (string, error) {
+func saveAlbumCover(folder string, art *audio.Cover, data []byte) (string, error) {
 	name := "cover.jpg"
 	if http.DetectContentType(data) != "image/jpeg" {
 		name = "cover.png"
-		data = art.png
+		data = art.PNG
 	}
 	if len(data) == 0 {
 		return "", errors.New("image could not be encoded")
@@ -154,7 +155,7 @@ func (p *player) stopCoverLookup() {
 	}
 }
 
-func onlineCover(ctx context.Context, title, artist string) (*cover, []byte, error) {
+func onlineCover(ctx context.Context, title, artist string) (*audio.Cover, []byte, error) {
 	title = strings.TrimSpace(remasterSuffix.ReplaceAllString(title, ""))
 	var filename string
 	if cache, err := os.UserCacheDir(); err == nil {
@@ -162,7 +163,7 @@ func onlineCover(ctx context.Context, title, artist string) (*cover, []byte, err
 		filename = filepath.Join(cache, "Elsewhere", "covers", fmt.Sprintf("%x.img", key))
 		if info, err := os.Stat(filename); err == nil && info.Mode().IsRegular() && info.Size() <= maxCoverBytes {
 			if data, err := os.ReadFile(filename); err == nil && len(data) <= maxCoverBytes {
-				if art := readCoverBytes(data); art != nil {
+				if art := audio.ReadCoverBytes(data); art != nil {
 					return art, data, nil
 				}
 			}
@@ -228,10 +229,10 @@ func curlCover(ctx context.Context, endpoint string, limit int) ([]byte, error) 
 	return data, err
 }
 
-func downloadCover(ctx context.Context, client *http.Client, endpoint string) (*cover, []byte, error) {
+func downloadCover(ctx context.Context, client *http.Client, endpoint string) (*audio.Cover, []byte, error) {
 	if strings.HasPrefix(endpoint, coverArchive) {
 		if data, err := curlCover(ctx, endpoint, maxCoverBytes); err == nil {
-			if art := readCoverBytes(data); art != nil {
+			if art := audio.ReadCoverBytes(data); art != nil {
 				return art, data, nil
 			}
 		}
@@ -269,7 +270,7 @@ func downloadCover(ctx context.Context, client *http.Client, endpoint string) (*
 		if len(data) > maxCoverBytes {
 			return nil, nil, fmt.Errorf("cover image exceeds size limit")
 		}
-		if art := readCoverBytes(data); art != nil {
+		if art := audio.ReadCoverBytes(data); art != nil {
 			return art, data, nil
 		}
 		lastError = fmt.Errorf("cover response was not a supported image")
