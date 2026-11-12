@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory() as temporary:
     root = Path(temporary)
     executable = root / "elsewhere"
     source = Path(__file__).resolve().parents[1]
-    subprocess.run(["go", "build", "-o", str(executable), "."], cwd=source, check=True)
+    subprocess.run(["go", "build", "-o", str(executable), "./cmd/elsewhere"], cwd=source, check=True)
 
     album = root / "Test Album"
     album.mkdir()

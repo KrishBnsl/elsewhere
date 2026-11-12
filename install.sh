@@ -167,7 +167,7 @@ install_from_source() {
 
     note "Elsewhere…"
     git clone -q --depth 1 "$REPO_ELSEWHERE" "$WORK/elsewhere-src"
-    (cd "$WORK/elsewhere-src" && go build -trimpath -ldflags='-s -w' -o "$BIN_DIR/elsewhere" .)
+    (cd "$WORK/elsewhere-src" && go build -trimpath -ldflags='-s -w' -o "$BIN_DIR/elsewhere" ./cmd/elsewhere)
 
     note "Melisma (this takes a few minutes the first time)…"
     git clone -q --depth 1 "$REPO_MELISMA" "$WORK/melisma-src"

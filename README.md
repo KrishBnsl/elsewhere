@@ -43,7 +43,7 @@ To build Elsewhere alone from this folder, use Go 1.25 or newer and the macOS Co
 
 ```sh
 mkdir -p "$HOME/.local/bin"
-go build -trimpath -ldflags='-s -w' -o "$HOME/.local/bin/elsewhere" .
+go build -trimpath -ldflags='-s -w' -o "$HOME/.local/bin/elsewhere" ./cmd/elsewhere
 ```
 
 Every push is built and tested on macOS, Linux and Windows by GitHub Actions (`.github/workflows/build.yml`), which also packages the downloads. Pushing a `v*` tag publishes them as a release:
