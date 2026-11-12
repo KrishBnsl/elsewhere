@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"elsewhere/internal/audio"
+	"elsewhere/internal/covers"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -289,7 +290,7 @@ func rainwaveNowPlaying(ctx context.Context, client *http.Client, origin string,
 	}
 	info.artPath = artPath
 	if artPath != knownArt {
-		if bytes, err := radioGet(ctx, client, origin+artPath+"_320.jpg", maxCoverBytes); err == nil {
+		if bytes, err := radioGet(ctx, client, origin+artPath+"_320.jpg", covers.MaxBytes); err == nil {
 			info.art = audio.ReadCoverBytes(bytes)
 		}
 	}

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"elsewhere/internal/audio"
+	"elsewhere/internal/covers"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -135,7 +136,7 @@ func fetchListenArt(ctx context.Context, client *http.Client, candidates []strin
 				case <-timer.C:
 				}
 			}
-			data, err := radioGet(ctx, client, candidate, maxCoverBytes)
+			data, err := radioGet(ctx, client, candidate, covers.MaxBytes)
 			if err != nil {
 				continue
 			}

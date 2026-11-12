@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"elsewhere/internal/audio"
+	"elsewhere/internal/covers"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -67,7 +68,7 @@ func radioUpdates(ctx context.Context) <-chan liveTrackInfo {
 
 func radioArtwork(ctx context.Context, client *http.Client, avatars *coverCache, info liveTrackInfo, avatar string) (*audio.Cover, string) {
 	if info.artist != "" {
-		if art, _, err := onlineCover(ctx, info.title, info.artist); err == nil && art != nil {
+		if art, _, err := covers.Online(ctx, info.title, info.artist); err == nil && art != nil {
 			return art, "cover:" + info.artist + "\x00" + info.title
 		}
 	}
@@ -78,7 +79,7 @@ func radioArtwork(ctx context.Context, client *http.Client, avatars *coverCache,
 	if art := avatars.get(source); art != nil {
 		return art, source
 	}
-	data, err := radioGet(ctx, client, source, maxCoverBytes)
+	data, err := radioGet(ctx, client, source, covers.MaxBytes)
 	if err != nil {
 		return nil, ""
 	}

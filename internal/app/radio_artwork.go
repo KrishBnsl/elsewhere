@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"elsewhere/internal/audio"
+	"elsewhere/internal/covers"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -35,7 +36,7 @@ func radioGameArtwork(ctx context.Context, client *http.Client, origin, file str
 		return nil
 	}
 	imagePath := (&url.URL{Path: "/catalog/" + asset}).EscapedPath()
-	data, err = radioGet(ctx, client, origin+imagePath, maxCoverBytes)
+	data, err = radioGet(ctx, client, origin+imagePath, covers.MaxBytes)
 	if err != nil {
 		return nil
 	}
