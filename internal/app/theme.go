@@ -16,6 +16,9 @@ type theme struct {
 
 	// Terminal styles. screen paints the whole window; empty keeps the terminal background.
 	text, dim, screen, panel, selected, rule string
+	// accent marks what matters most (titles, keys, the played part of a bar), muted what matters
+	// least (secondary labels), border draws frames and dividers.
+	accent, muted, border string
 
 	box              boxStyle
 	barDone, barTodo string
@@ -42,6 +45,7 @@ var (
 var themes = []theme{
 	{
 		name: "Amber", description: "Warm amber terminal (default)",
+		accent: "\x1b[38;5;214m", muted: "\x1b[38;5;137m", border: "\x1b[38;5;94m",
 		text: "\x1b[38;5;221m", dim: "\x1b[38;5;179m", panel: "\x1b[48;5;235m", rule: "\x1b[48;5;232m",
 		selected: "\x1b[38;5;232;48;5;214m",
 		box:      singleBox, barDone: "━", barTodo: "─",
@@ -52,6 +56,7 @@ var themes = []theme{
 	},
 	{
 		name: "MAGI", description: "NERV MAGI system: orange on black, three-computer verdicts",
+		accent: "\x1b[38;5;214m", muted: "\x1b[38;5;130m", border: "\x1b[38;5;130m",
 		text: "\x1b[38;5;208m", dim: "\x1b[38;5;166m", screen: "\x1b[48;5;16m", panel: "\x1b[48;5;233m", rule: "\x1b[48;5;16m",
 		selected: "\x1b[38;5;16;48;5;208m",
 		box:      slantedBox, barDone: "▓", barTodo: "░",
@@ -62,6 +67,7 @@ var themes = []theme{
 	},
 	{
 		name: "Phosphor", description: "Green CRT phosphor",
+		accent: "\x1b[38;5;118m", muted: "\x1b[38;5;28m", border: "\x1b[38;5;22m",
 		text: "\x1b[38;5;46m", dim: "\x1b[38;5;34m", screen: "\x1b[48;5;16m", panel: "\x1b[48;5;233m", rule: "\x1b[48;5;16m",
 		selected: "\x1b[38;5;16;48;5;46m",
 		box:      singleBox, barDone: "█", barTodo: "░",
@@ -72,6 +78,7 @@ var themes = []theme{
 	},
 	{
 		name: "Synthwave", description: "Neon pink and cyan on midnight blue",
+		accent: "\x1b[38;5;51m", muted: "\x1b[38;5;97m", border: "\x1b[38;5;61m",
 		text: "\x1b[38;5;213m", dim: "\x1b[38;5;141m", screen: "\x1b[48;5;17m", panel: "\x1b[48;5;53m", rule: "\x1b[48;5;17m",
 		selected: "\x1b[38;5;16;48;5;51m",
 		box:      doubleBox, barDone: "━", barTodo: "─",
@@ -82,6 +89,7 @@ var themes = []theme{
 	},
 	{
 		name: "Ice", description: "Cool frost blue with rounded frames",
+		accent: "\x1b[38;5;159m", muted: "\x1b[38;5;66m", border: "\x1b[38;5;24m",
 		text: "\x1b[38;5;117m", dim: "\x1b[38;5;67m", panel: "\x1b[48;5;235m", rule: "\x1b[48;5;233m",
 		selected: "\x1b[38;5;16;48;5;81m",
 		box:      roundBox, barDone: "━", barTodo: "─",
@@ -92,6 +100,7 @@ var themes = []theme{
 	},
 	{
 		name: "Sakura", description: "Soft pink with rounded frames",
+		accent: "\x1b[38;5;225m", muted: "\x1b[38;5;132m", border: "\x1b[38;5;96m",
 		text: "\x1b[38;5;218m", dim: "\x1b[38;5;175m", panel: "\x1b[48;5;236m", rule: "\x1b[48;5;233m",
 		selected: "\x1b[38;5;16;48;5;218m",
 		box:      roundBox, barDone: "━", barTodo: "─",
@@ -102,6 +111,7 @@ var themes = []theme{
 	},
 	{
 		name: "Mono", description: "High-contrast black and white with heavy frames",
+		accent: "\x1b[38;5;231m", muted: "\x1b[38;5;243m", border: "\x1b[38;5;239m",
 		text: "\x1b[38;5;255m", dim: "\x1b[38;5;245m", panel: "\x1b[48;5;236m", rule: "\x1b[48;5;232m",
 		selected: "\x1b[38;5;16;48;5;255m",
 		box:      heavyBox, barDone: "━", barTodo: "─",
@@ -116,15 +126,21 @@ const reset = "\x1b[0m"
 
 // The styles below always mirror the active theme so every drawing helper can use them directly.
 var (
-	activeTheme                        = &themes[0]
-	amber, dim, black, panel, selected string
+	activeTheme                                        = &themes[0]
+	amber, dim, panel, selected, accent, muted, border string
+)
+
+const (
+	bold   = "\x1b[1m"
+	unbold = "\x1b[22m"
 )
 
 func init() { applyTheme(&themes[0]) }
 
 func applyTheme(t *theme) {
 	activeTheme = t
-	amber, dim, black, panel, selected = t.text, t.dim, t.rule, t.panel, t.selected
+	amber, dim, panel, selected = t.text, t.dim, t.panel, t.selected
+	accent, muted, border = t.accent, t.muted, t.border
 }
 
 func themeByName(name string) *theme {
@@ -175,18 +191,49 @@ func textWidth(s string) int {
 }
 
 // boxTop draws the top edge with a heading, boxBottom the bottom edge, boxSide wraps a content line.
+// Frames are drawn in the border color and headings in the accent, and each helper hands the
+// text color back so callers can keep writing after it.
 func boxTop(heading string, columns int) string {
 	b := activeTheme.box
-	return b.tl + heading + strings.Repeat(b.h, max(0, columns-2-textWidth(heading))) + b.tr
+	if heading == "" {
+		return border + b.tl + strings.Repeat(b.h, max(0, columns-2)) + b.tr + amber
+	}
+	heading = cell(heading, min(textWidth(heading), max(0, columns-2)))
+	lead := ""
+	if rest, ok := strings.CutPrefix(heading, b.h); ok {
+		lead, heading = b.h, rest
+	}
+	return border + b.tl + lead + accent + bold + heading + unbold + border +
+		strings.Repeat(b.h, max(0, columns-2-textWidth(lead+heading))) + b.tr + amber
+}
+
+// paneTop is boxTop with a second, quieter label at the right end, for list panes.
+func paneTop(left, right string, columns int, focused bool) string {
+	b := activeTheme.box
+	frame, label := border, dim
+	if focused {
+		frame, label = amber, accent+bold
+	}
+	inner := max(0, columns-2)
+	right = cell(right, min(textWidth(right), max(0, inner-textWidth(left)-2)))
+	left = cell(left, min(textWidth(left), inner))
+	fill := max(0, inner-textWidth(left)-textWidth(right))
+	return frame + b.tl + label + left + unbold + frame + strings.Repeat(b.h, fill) + muted + right + frame + b.tr + amber
 }
 
 func boxBottom(columns int) string {
 	b := activeTheme.box
-	return b.bl + strings.Repeat(b.h, max(0, columns-2)) + b.br
+	return border + b.bl + strings.Repeat(b.h, max(0, columns-2)) + b.br + amber
 }
 
 func boxSide(inner string) string {
-	return activeTheme.box.v + inner + activeTheme.box.v
+	return border + activeTheme.box.v + amber + inner + border + activeTheme.box.v + amber
+}
+
+// boxDivider is a horizontal rule inside a box.
+func boxDivider(columns int) string {
+	b := activeTheme.box
+	return border + b.v + strings.Repeat("─", max(0, columns-2)) + b.v + amber
 }
 
 // ruleRow is the "now playing" divider. MAGI replaces its tail with the three computers' votes:
@@ -196,7 +243,8 @@ func (p *player) ruleRow(columns int) string {
 	h := t.box.h
 	head := " " + h + h + " " + t.nowPlaying + " "
 	if !t.magi || columns < textWidth(head)+60 {
-		return dim + cell(head+strings.Repeat(h, columns), columns) + reset
+		return " " + border + h + h + " " + muted + t.nowPlaying + " " + border +
+			strings.Repeat(h, max(0, columns-textWidth(head))) + reset
 	}
 	const (
 		green = "\x1b[38;5;46m"
@@ -280,7 +328,7 @@ func (p *player) overlayThemePicker(rows []string, width int) {
 		}
 		dialog = append(dialog, row(themeLine(&themes[i], i == p.themePicker.index), style))
 	}
-	dialog = append(dialog, row(" ↑↓ Preview  Enter Keep  Esc Cancel", dim), boxBottom(columns))
+	dialog = append(dialog, dialogFooter(" ↑↓ Preview  Enter Keep  Esc Cancel", columns), boxBottom(columns))
 	x, y := (width-columns)/2+1, max(0, (len(rows)-len(dialog))/2)
 	cursor := fmt.Sprintf("\x1b[%dG", x)
 	for i, line := range dialog {

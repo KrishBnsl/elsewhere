@@ -570,7 +570,7 @@ func (p *player) overlayTaste(rows []string, width int) {
 		}
 		dialog = append(dialog, row(" "+line, style))
 	}
-	dialog = append(dialog, row(" Esc Close", dim), boxBottom(columns))
+	dialog = append(dialog, dialogFooter(" Esc Close", columns), boxBottom(columns))
 	x, y := (width-columns)/2+1, max(0, (len(rows)-len(dialog))/2)
 	cursor := fmt.Sprintf("\x1b[%dG", x)
 	for i, line := range dialog {

@@ -39,12 +39,12 @@ func TestBlindNowPlayingMasksMetadataUntilReveal(t *testing.T) {
 	a.tracks[0].artist = "Identifying artist"
 	p.active, p.popup, p.blind = a, true, true
 	p.why = []string{"Identifying recommendation"}
-	frame := strings.Join(p.frame(100, 30), "\n")
+	frame := visible(strings.Join(p.frame(100, 30), "\n"))
 	if strings.Contains(frame, "Identifying") || !strings.Contains(frame, "R Reveal song") {
 		t.Fatal("blind mode exposed metadata or omitted the reveal control")
 	}
 	p.handle("R")
-	frame = strings.Join(p.frame(100, 30), "\n")
+	frame = visible(strings.Join(p.frame(100, 30), "\n"))
 	if !strings.Contains(frame, "Identifying track") {
 		t.Fatal("R did not reveal the track")
 	}

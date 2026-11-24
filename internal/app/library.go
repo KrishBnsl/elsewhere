@@ -31,6 +31,7 @@ type album struct {
 	cover                *audio.Cover
 	loaded               bool
 	artworkSize          int
+	artworkTheme         *theme
 	artworkRows          []string
 	coverPromptDismissed bool
 	likedSongs           bool

@@ -85,7 +85,7 @@ func (p *player) overlayRadioPicker(rows []string, width int) {
 		return boxSide(style + cell(text, columns-2) + panel + amber)
 	}
 	dialog := []string{boxTop(heading, columns),
-		row(" > "+p.radioPicker.filter+"_", selected)}
+		row(" › "+p.radioPicker.filter+"█", accent)}
 	stations := p.matchingStations()
 	if len(stations) == 0 {
 		dialog = append(dialog, row(" No matching stations", dim))
@@ -93,12 +93,12 @@ func (p *player) overlayRadioPicker(rows []string, width int) {
 	for i, station := range stations {
 		text, style := "   ", dim
 		if i == p.radioPicker.index {
-			text, style = " › ", amber
+			text, style = " › ", selected
 		}
 		text += station.name + " / " + station.description
 		dialog = append(dialog, row(text, style))
 	}
-	dialog = append(dialog, row(" ↑↓ Move  Enter Tune in  Esc Cancel", dim),
+	dialog = append(dialog, dialogFooter(" ↑↓ Move  Enter Tune in  Esc Cancel", columns),
 		boxBottom(columns))
 	x, y := (width-columns)/2+1, (len(rows)-len(dialog))/2
 	cursor := fmt.Sprintf("\x1b[%dG", x)

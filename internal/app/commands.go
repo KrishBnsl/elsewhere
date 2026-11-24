@@ -277,28 +277,36 @@ func (p *player) overlayPalette(rows []string, width int) {
 	if len(items) == 0 {
 		return
 	}
-	columns := min(width, 62)
+	columns := min(width-2, 72)
 	visible := min(len(items), 8, len(rows)-8)
 	if visible < 1 {
 		return
 	}
 	first := max(0, min(p.paletteIndex-visible/2, len(items)-visible))
-	label := " COMMANDS "
-	line := func(text, style string) string {
-		return boxSide(style + cell(text, columns-2) + panel + amber)
+	name := 6
+	for _, item := range items {
+		name = max(name, textWidth(item.name)+1)
 	}
-	lines := []string{boxTop(label, columns)}
+	name = min(name, 14)
+	base := panel + amber
+	lines := []string{boxTop(fmt.Sprintf(" COMMANDS · %d ", len(items)), columns)}
 	for i := first; i < first+visible; i++ {
-		text, style := fmt.Sprintf("   %-8s %s", items[i].name, items[i].description), dim
+		label := cell(items[i].name, name)
+		text := []seg{{"   /", muted}, {label, accent + bold}, {" " + items[i].description, dim}}
+		style := base
 		if i == p.paletteIndex {
-			text, style = fmt.Sprintf(" › %-8s %s", items[i].name, items[i].description), selected
+			text = []seg{{" › /", bold}, {label, bold}, {" " + items[i].description, ""}}
+			style = selected
 		}
-		lines = append(lines, line(text, style))
+		lines = append(lines, boxSide(line(columns-2, style, text...)+base))
+	}
+	if len(items) > visible {
+		lines = append(lines, boxSide(line(columns-2, base, seg{fmt.Sprintf("   %d–%d of %d", first+1, first+visible, len(items)), muted})))
 	}
 	lines = append(lines, boxBottom(columns))
 	// The list sits directly above the prompt row, like an fzf window growing upward.
-	top := len(rows) - 3 - len(lines)
+	top := max(0, len(rows)-2-len(lines))
 	for i, text := range lines {
-		rows[top+i] += "\x1b[1G" + panel + amber + text + reset
+		rows[top+i] += "\x1b[2G" + panel + amber + text + reset
 	}
 }

@@ -48,7 +48,7 @@ func (p *player) overlayPlaylist(rows []string, width int) {
 		} else {
 			body = append(body, row(song, dim))
 		}
-		body = append(body, row(" > "+d.filter+"_", selected))
+		body = append(body, row(" › "+d.filter+"█", accent))
 		matches := p.matchPlaylists(d.filter)
 		if len(matches) == 0 {
 			hint := " No matching playlists"
@@ -65,7 +65,7 @@ func (p *player) overlayPlaylist(rows []string, width int) {
 			style := dim
 			if i == d.index {
 				text = " › " + list.Name
-				style = amber
+				style = selected
 			}
 			if list.Description != "" {
 				text += " / " + list.Description
@@ -77,7 +77,7 @@ func (p *player) overlayPlaylist(rows []string, width int) {
 		body = append(body, row(" "+d.errorText, amber))
 	}
 	dialog := append([]string{boxTop(heading, columns)}, body...)
-	dialog = append(dialog, row(footer, dim), boxBottom(columns))
+	dialog = append(dialog, dialogFooter(footer, columns), boxBottom(columns))
 	x, y := (width-columns)/2+1, (len(rows)-len(dialog))/2
 	cursor := fmt.Sprintf("\x1b[%dG", x)
 	for i, line := range dialog {

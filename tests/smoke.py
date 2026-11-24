@@ -16,17 +16,37 @@ import wave
 import zlib
 
 
+def plain(output):
+    """The output without colors, so styled runs such as key hints read as plain text."""
+    return re.sub(rb"\x1b\[[0-9;:]*m", b"", bytes(output))
+
+
+def seen(expected, output):
+    if isinstance(expected, re.Pattern):
+        return expected.search(plain(output)) is not None
+    return expected in output or expected in plain(output)
+
+
 def wait_for(terminal, expected):
     deadline = time.monotonic() + 8
     output = bytearray()
-    while expected not in output and time.monotonic() < deadline:
+    while not seen(expected, output) and time.monotonic() < deadline:
         if select.select([terminal], [], [], 0.1)[0]:
             try:
                 output.extend(os.read(terminal, 65536))
             except OSError:
                 break
-    assert expected in output, output[-3000:]
+    assert seen(expected, output), output[-3000:]
     return output
+
+
+def count(name, n):
+    """A library row: the name, then its song count at the right edge of the pane."""
+    return re.compile(re.escape(name) + rb" +" + str(n).encode() + rb" ")
+
+
+def position(pattern, output):
+    return pattern.search(plain(output)).start()
 
 
 def png_chunk(kind, data):
@@ -66,7 +86,7 @@ with tempfile.TemporaryDirectory() as temporary:
     with subprocess.Popen([str(executable), str(root)], stdin=child, stdout=child, stderr=child, env=env) as player:
         try:
             startup = wait_for(terminal, b"Test Album")
-            assert startup.index(b"Liked Songs (0)") < startup.index(b"Test Album")
+            assert position(count(b"Liked Songs", 0), startup) < position(re.compile(rb"   Test Album"), startup)
             os.write(terminal, b"/radio\r")
             picker = wait_for(terminal, b"Enter Tune in")
             for station in (b"Chiptune Radio", b"Anime FM", b"Game OST", b"Remix Lab"):
@@ -80,16 +100,16 @@ with tempfile.TemporaryDirectory() as temporary:
             os.write(terminal, b"/np\r")
             wait_for(terminal, b"NEW PLAYLIST")
             os.write(terminal, b"Late Night\tSongs after dark\r")
-            wait_for(terminal, b"Late Night (0)")
+            wait_for(terminal, count(b"Late Night", 0))
             os.write(terminal, b"/np\r")
             wait_for(terminal, b"NEW PLAYLIST")
             os.write(terminal, b"Morning Drive\r")
-            wait_for(terminal, b"Morning Drive (0)")
+            wait_for(terminal, count(b"Morning Drive", 0))
             os.write(terminal, b"\t\x1b[B\r")
             popup = wait_for(terminal, b"Esc Library")
-            assert b"02 Blue Hour  /  Unknown artist" in popup
+            assert re.search(rb"Blue Hour +Unknown artist", plain(popup))
             assert b"\x1b[38;2;255;0;0m\x1b[48;2;255;0;0m" + "▀".encode() * 32 in popup
-            assert ("┌─ NOW PLAYING " + "─" * 70).encode() in popup
+            assert ("┌─ NOW PLAYING " + "─" * 70).encode() in plain(popup)
             assert b"APP 70%" in popup
             assert b"SPECTRUM / AMBER RAIN" in popup
             assert "█".encode() in popup or "▇".encode() in popup
@@ -125,11 +145,11 @@ with tempfile.TemporaryDirectory() as temporary:
             os.write(terminal, b"m")
             wait_for(terminal, b"Esc Library")
             os.write(terminal, b"<")
-            wait_for(terminal, b"01 First Light  /  Unknown artist")
+            wait_for(terminal, re.compile(rb"First Light +Unknown artist"))
             os.write(terminal, b">")
-            wait_for(terminal, b"02 Blue Hour  /  Unknown artist")
+            wait_for(terminal, re.compile(rb"Blue Hour +Unknown artist"))
             os.write(terminal, b"<")
-            wait_for(terminal, b"01 First Light  /  Unknown artist")
+            wait_for(terminal, re.compile(rb"First Light +Unknown artist"))
             os.write(terminal, b"\x1b")
             wait_for(terminal, "› TRACKS".encode())
             os.write(terminal, b"\x1b[A\r")
@@ -164,21 +184,21 @@ with tempfile.TemporaryDirectory() as temporary:
     fcntl.ioctl(child, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 95, 0, 0))
     with subprocess.Popen([str(executable), str(root)], stdin=child, stdout=child, stderr=child, env=env) as player:
         try:
-            saved = wait_for(terminal, b"Morning Drive (1)")
-            assert saved.index(b"Liked Songs (1)") < saved.index(b"Late Night (1)")
+            saved = wait_for(terminal, count(b"Morning Drive", 1))
+            assert position(count(b"Liked Songs", 1), saved) < position(count(b"Late Night", 1), saved)
             os.write(terminal, b"\r")
             popup = wait_for(terminal, b"* Unlike")
             assert b"TRACK 1/1" in popup
             assert b"\x1b[38;2;255;0;0m" in popup
             os.write(terminal, b"*")
             unliked = wait_for(terminal, b"* Like")
-            assert b"Liked Songs (0)" in unliked
+            assert count(b"Liked Songs", 0).search(plain(unliked))
             os.write(terminal, b"\x1b")
             wait_for(terminal, b"Press * on a track")
             os.write(terminal, b"\x1b[B\r")
             playlist_popup = wait_for(terminal, b"Esc Library")
             assert b"TRACK 1/1" in playlist_popup
-            assert b"01 First Light" in playlist_popup
+            assert b"First Light" in playlist_popup
             assert b"\x1b[38;2;255;0;0m" in playlist_popup
             os.write(terminal, b":q\r")
             wait_for(terminal, b"\x1b[?1049l")

@@ -606,7 +606,7 @@ func (p *player) overlayFriends(rows []string, width int) {
 		add(" Disconnect from "+target.Name+"?", amber)
 		footer = " Enter Disconnect · Esc Cancel"
 	}
-	add(footer, dim)
+	lines = append(lines, dialogFooter(footer, columns))
 	lines = append(lines, boxBottom(columns))
 	cursor := fmt.Sprintf("\x1b[%dG", (width-columns)/2+1)
 	for i, line := range lines {

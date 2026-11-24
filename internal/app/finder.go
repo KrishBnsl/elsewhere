@@ -114,24 +114,38 @@ func (p *player) overlayFinder(rows []string, width int) {
 	lines := []string{boxTop(heading, columns)}
 	add := func(text, style string) { lines = append(lines, boxSide(style+cell(text, columns-2)+panel+amber)) }
 	if f.outputs == nil {
-		add(" "+f.query+"_", selected)
+		add(" › "+f.query+"█", accent)
 	}
 	visible := min(10, len(rows)-5)
 	first := max(0, min(f.index-visible/2, len(f.hits)-visible))
+	base := panel + amber
+	icons := map[string]string{"Song": "♪", "Album": "◉", "Playlist": "≡"}
 	for i := first; i < min(len(f.hits), first+visible); i++ {
-		prefix, style := "   ", dim
-		if i == f.index {
-			prefix, style = " › ", selected
+		// Labels read "Kind · Title / Artist"; output names have neither part.
+		kind, rest, typed := strings.Cut(f.hits[i].label, " · ")
+		if !typed {
+			kind, rest = "", f.hits[i].label
 		}
-		add(prefix+f.hits[i].label, style)
+		title, sub, _ := strings.Cut(rest, " / ")
+		if sub != "" {
+			sub = "  " + sub
+		}
+		if kind != "" {
+			kind = cell(icons[kind]+" "+kind, 11)
+		}
+		if i == f.index {
+			lines = append(lines, boxSide(line(columns-2, selected, seg{" › ", bold}, seg{kind, ""}, seg{title, bold}, seg{sub, ""})+base))
+		} else {
+			lines = append(lines, boxSide(line(columns-2, base, seg{"   ", ""}, seg{kind, muted}, seg{title, amber}, seg{sub, dim})))
+		}
 	}
 	if len(f.hits) == 0 {
 		add(" Type a song, artist, album or playlist", dim)
 	}
 	if f.outputs == nil {
-		add(" ↑↓ Select  Enter Play  Tab Play next  → Go to album", dim)
+		lines = append(lines, dialogFooter(" ↑↓ Select  Enter Play  Tab Play next  → Go to album", columns))
 	} else {
-		add(" ↑↓ Select  Enter Switch  Esc Close", dim)
+		lines = append(lines, dialogFooter(" ↑↓ Select  Enter Switch  Esc Close", columns))
 	}
 	lines = append(lines, boxBottom(columns))
 	for i, line := range lines {

@@ -13,7 +13,7 @@ func (p *player) overlayCoverPrompt(rows []string, width int) {
 		boxSide(cell(" "+p.coverPrompt.title, columns-2)),
 		boxSide(cell(" Folder: "+filepath.Base(filepath.Dir(p.current().path)), columns-2)),
 		boxSide(cell(" Download cover into the album folder?", columns-2)),
-		boxSide(cell(" [Y/n]  Enter Download  Esc Skip", columns-2)),
+		dialogFooter(" Y/Enter Download  N/Esc Skip", columns),
 		boxBottom(columns),
 	}
 	x, y := (width-columns)/2+1, (len(rows)-len(lines))/2

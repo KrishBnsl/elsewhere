@@ -317,29 +317,27 @@ func (p *player) overlayQueue(rows []string, width int) {
 	}
 	const visible = 10
 	first := max(0, min(p.queueView.index-visible/2, len(p.queue)-visible))
+	base := panel + amber
+	entry := func(selectedRow bool, n int, title, artist string) string {
+		if selectedRow {
+			return boxSide(line(columns-2, selected, seg{fmt.Sprintf(" › %2d  ", n), ""}, seg{title, bold}, seg{"  " + artist, ""}) + base)
+		}
+		return boxSide(line(columns-2, base, seg{fmt.Sprintf("   %2d  ", n), muted}, seg{title, amber}, seg{"  " + artist, dim}))
+	}
 	for i := first; i < min(len(p.queue), first+visible); i++ {
 		t := p.queue[i]
-		text, style := "   ", dim
-		if i == p.queueView.index {
-			text, style = " › ", amber
-		}
-		text += fmt.Sprintf("%2d. %s / %s", i+1, t.title, t.artist)
-		dialog = append(dialog, row(text, style))
+		dialog = append(dialog, entry(i == p.queueView.index, i+1, trackTitle(t, t.number), t.artist))
 	}
 	if len(upcoming) > 0 {
-		label := " THEN MELISMA · if you listen through"
+		label := "THEN MELISMA"
 		if len(p.queue) == 0 {
-			label = " MELISMA NEXT · if you listen through"
+			label = "MELISMA NEXT"
 		}
-		dialog = append(dialog, row("", dim), row(label, amber))
+		dialog = append(dialog, row("", dim), boxSide(line(columns-2, base, seg{" " + label, accent + bold}, seg{"  ·  if you listen through", muted})))
 		for i, s := range upcoming {
-			text, style := fmt.Sprintf("   %2d. %s / %s", i+1, s.Title, s.Artist), dim
-			if len(p.queue)+i == p.queueView.index {
-				text, style = fmt.Sprintf(" › %2d. %s / %s", i+1, s.Title, s.Artist), amber
-			}
-			dialog = append(dialog, row(text, style))
+			dialog = append(dialog, entry(len(p.queue)+i == p.queueView.index, i+1, s.Title, s.Artist))
 			if i == 0 && len(s.Why) > 0 {
-				dialog = append(dialog, row("       ↳ "+s.Why[0], dim))
+				dialog = append(dialog, boxSide(line(columns-2, base, seg{"       ↳ ", accent}, seg{s.Why[0], dim})))
 			}
 		}
 	} else if a, next := p.albumContinuation(); a != nil {
@@ -350,7 +348,7 @@ func (p *player) overlayQueue(rows []string, width int) {
 	} else if p.engine != nil && !p.melisma {
 		dialog = append(dialog, row("", dim), row(" /melisma lets Melisma choose after this", dim))
 	}
-	dialog = append(dialog, row(" ↑↓ Select  J/K Reorder  q Remove  X Clear  S Save  Enter Play", dim),
+	dialog = append(dialog, dialogFooter(" ↑↓ Select  J/K Reorder  q Remove  X Clear  S Save  Enter Play", columns),
 		boxBottom(columns))
 	x, y := (width-columns)/2+1, max(0, (len(rows)-len(dialog))/2)
 	cursor := fmt.Sprintf("\x1b[%dG", x)
