@@ -18,7 +18,17 @@ var radioStations = []radioStation{
 	{name: "Anime FM", description: "Anime songs and J-pop", provider: radio.ListenProvider, stream: "https://listen.moe/fallback"},
 	{name: "Game OST", description: "Original game soundtracks", provider: "Rainwave", stream: "https://relay.rainwave.cc/game.mp3", backup: "https://allrelays.rainwave.cc/game.mp3", rainwaveID: 1},
 	{name: "Remix Lab", description: "OverClocked ReMix", provider: "Rainwave", stream: "https://relay.rainwave.cc/ocremix.mp3", backup: "https://allrelays.rainwave.cc/ocremix.mp3", rainwaveID: 2},
+	{name: "Lofi Beats", description: "Lo-fi hip hop to relax and study to", provider: radio.LautProvider, stream: "https://stream.laut.fm/lofi", backup: "https://lofi.stream.laut.fm/lofi"},
+	{name: "Chillhop", description: "Jazzy beats and chill instrumentals", provider: radio.FluxProvider, stream: "https://streams.fluxfm.de/Chillhop/mp3-128/streams.fluxfm.de/"},
 	{name: "Vocaloid & Doujin", description: "Vocaloid, anime, doujin and game tracks", provider: radio.RadProvider, stream: "https://stream.r-a-d.io/main.mp3", backup: "https://relay0.r-a-d.io/main.mp3"},
+}
+
+// artwork is the station's cover when the song on air has none of its own.
+func (s radioStation) artwork() *audio.Cover {
+	if s.provider == radio.LautProvider || s.provider == radio.FluxProvider {
+		return radio.LofiArtwork()
+	}
+	return radio.StationArtwork()
 }
 
 var stopRadioStation = radioStation{name: "Stop radio", description: "Return to the library"}
@@ -81,8 +91,10 @@ func (p *player) tuneStation(station radioStation) {
 		p.live.info = radio.ListenUpdates(ctx)
 	case radio.RadProvider:
 		p.live.info = radio.RadUpdates(ctx)
+	case radio.LautProvider, radio.FluxProvider:
+		p.live.info = radio.LofiUpdates(ctx, station.provider)
 	}
-	a := &album{title: station.name, radio: true, cover: radio.StationArtwork()}
+	a := &album{title: station.name, radio: true, cover: station.artwork()}
 	a.tracks = []track{{title: station.name, artist: station.provider, album: station.description, source: a, radioFormat: "LIVE"}}
 	p.active, p.playingIndex, p.restored = a, 0, false
 	p.state = audio.Playback{}
@@ -191,7 +203,7 @@ func (p *player) updateLive(now time.Time) {
 			if info.ArtPath != live.artPath || (info.Art != nil && info.Art != p.active.cover) {
 				p.active.cover = info.Art
 				if p.active.cover == nil {
-					p.active.cover = radio.StationArtwork()
+					p.active.cover = live.station.artwork()
 				}
 				p.active.artworkSize = 0
 				live.artPath = ""
